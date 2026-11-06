@@ -46,7 +46,7 @@ REQUIRED_PATHS = (
     "codex/scripts/pr.py",
     "codex/scripts/integrate_local.py",
     "codex/scripts/_common.py",
-    "codex/config/flow.toml",
+    "codex/scripts/acceptance_keyring.py",    "codex/scripts/acceptance_evidence.py",    "codex/scripts/acceptance_gate.py",    "codex/scripts/acceptance_reconcile.py",    "codex/scripts/acceptance_policy.py",    "codex/scripts/acceptance_cli.py",    "codex/tests/test_acceptance_keyring.py",    "codex/tests/test_acceptance_evidence.py",    "codex/tests/test_acceptance_gate.py",    "codex/tests/test_acceptance_reconcile.py",    "codex/tests/test_acceptance_adversarial.py",    "codex/tests/test_acceptance_recovery.py",    "docs/acceptance/TRUSTWORTHY_ACCEPTANCE.md",    "codex/config/flow.toml",
     "codex/skills/orchestra/SKILL.md",
     "codex/skills/orchestra/agents/openai.yaml",
     "codex/skills/orchestra-project-start/SKILL.md",
@@ -725,6 +725,38 @@ def check_python_tests(root: Path) -> list[str]:
     return [f"python-tests: unittest discovery failed\n{output}"]
 
 
+
+def check_trustworthy_acceptance(root: Path) -> list[str]:
+    failures: list[str] = []
+    scripts = [
+        "codex/scripts/acceptance_keyring.py",
+        "codex/scripts/acceptance_evidence.py",
+        "codex/scripts/acceptance_gate.py",
+        "codex/scripts/acceptance_reconcile.py",
+        "codex/scripts/acceptance_policy.py",
+        "codex/scripts/acceptance_cli.py",
+    ]
+    for relative in scripts:
+        path = root / relative
+        if not path.is_file():
+            failures.append(f"trustworthy-acceptance: missing {relative}")
+    tests = [
+        "codex/tests/test_acceptance_keyring.py",
+        "codex/tests/test_acceptance_evidence.py",
+        "codex/tests/test_acceptance_gate.py",
+        "codex/tests/test_acceptance_reconcile.py",
+        "codex/tests/test_acceptance_adversarial.py",
+        "codex/tests/test_acceptance_recovery.py",
+    ]
+    for relative in tests:
+        if not (root / relative).is_file():
+            failures.append(f"trustworthy-acceptance: missing {relative}")
+    doc = root / "docs/acceptance/TRUSTWORTHY_ACCEPTANCE.md"
+    if not doc.is_file():
+        failures.append("trustworthy-acceptance: missing docs/acceptance/TRUSTWORTHY_ACCEPTANCE.md")
+    return failures
+
+
 def check_repository_conventions(root: Path) -> list[str]:
     """Keep this repository's `.agent/` hard-gate command declaration exact."""
     failures: list[str] = []
@@ -755,6 +787,7 @@ QUICK_CHECKS: tuple[Check, ...] = (
     check_skills_and_runtime,
     check_modular_routing,
     check_repository_conventions,
+    check_trustworthy_acceptance,
 )
 FULL_CHECKS: tuple[Check, ...] = QUICK_CHECKS + (
     check_python_syntax,
