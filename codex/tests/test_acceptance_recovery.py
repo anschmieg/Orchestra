@@ -53,6 +53,9 @@ class CrashAndTimeoutRecoveryTests(unittest.TestCase):
     def setUp(self) -> None:
         self.repo = Path(tempfile.mkdtemp(prefix="orchestra-crashrepo-"))
         subprocess.run(["git", "-C", str(self.repo), "init", "-q", "-b", "main"], check=True)
+        (self.repo / "x.txt").write_text("x\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(self.repo), "add", "x.txt"], check=True)
+        subprocess.run(["git", "-C", str(self.repo), "commit", "-q", "-m", "init"], check=True)
 
     def test_crashed_check_is_blocked_not_passed(self) -> None:
         spec = {
@@ -60,7 +63,7 @@ class CrashAndTimeoutRecoveryTests(unittest.TestCase):
             "contract": "crash",
             "checks": [{"name": "crash", "command": [sys.executable, "-c", "raise SystemExit(137)"]}],
         }
-        result = run_gate(self.repo, spec)
+        result = run_gate(self.repo, spec, "HEAD")
         self.assertEqual(result["status"], "rejected")
         self.assertEqual(result["checks"][0]["status"], "failed")
 
@@ -70,7 +73,7 @@ class CrashAndTimeoutRecoveryTests(unittest.TestCase):
             "contract": "missing",
             "checks": [{"name": "missing", "command": ["/no/such/binary/here"]}],
         }
-        result = run_gate(self.repo, spec)
+        result = run_gate(self.repo, spec, "HEAD")
         self.assertEqual(result["status"], "blocked")
         self.assertEqual(result["checks"][0]["status"], "blocked")
 
@@ -80,7 +83,7 @@ class CrashAndTimeoutRecoveryTests(unittest.TestCase):
             "contract": "ok",
             "checks": [{"name": "ok", "command": [sys.executable, "-c", "pass"]}],
         }
-        result = run_gate(self.repo, spec)
+        result = run_gate(self.repo, spec, "HEAD")
         self.assertEqual(result["status"], "accepted")
 
 

@@ -146,7 +146,7 @@ class AdversarialPilotTests(unittest.TestCase):
 
         result = evaluate(impl_repo, envelope, gate_spec=json.loads(gate_path.read_text(encoding="utf-8")), home=self.home)
         self.assertNotEqual(result["status"], "accepted")
-        self.assertIn("tree", result["reason"])
+        self.assertIn("commit", result["reason"])
 
 
 if __name__ == "__main__":

@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 from __future__ import annotations
 
 import argparse
@@ -96,33 +94,57 @@ def run_check(repo: Path, check: dict[str, Any], timeout: int = CHECK_TIMEOUT) -
     }
 
 
-def run_gate(repo: Path, spec: dict[str, Any]) -> dict[str, Any]:
+def _immutable_checkout(repo: Path, commit: str) -> Path:
+    import tempfile
+    checkout = Path(tempfile.mkdtemp(prefix="orchestra-verify-"))
+    result = subprocess.run(
+        ["git", "-C", str(repo), "worktree", "add", "--detach", str(checkout), commit],
+        capture_output=True, text=True, check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"could not create immutable checkout: {result.stderr.strip()}")
+    subprocess.run(["chmod", "-R", "a-w", str(checkout)], check=False)
+    return checkout
+
+
+def _cleanup_checkout(checkout: Path) -> None:
+    import shutil
+    subprocess.run(["chmod", "-R", "u+w", str(checkout)], check=False)
+    subprocess.run(["git", "worktree", "remove", "--force", str(checkout)], check=False, capture_output=True)
+    shutil.rmtree(checkout, ignore_errors=True)
+
+
+def run_gate(repo: Path, spec: dict[str, Any], commit: str) -> dict[str, Any]:
     repo = repo.resolve()
-    results = [run_check(repo, check) for check in spec["checks"]]
-    failed = [r for r in results if r["status"] == "failed"]
-    blocked = [r for r in results if r["status"] == "blocked"]
-    if blocked:
+    checkout = _immutable_checkout(repo, commit)
+    try:
+        results = [run_check(checkout, check) for check in spec["checks"]]
+        failed = [r for r in results if r["status"] == "failed"]
+        blocked = [r for r in results if r["status"] == "blocked"]
+        if blocked:
+            return {
+                "status": "blocked",
+                "gate_id": spec["gate_id"],
+                "contract": spec["contract"],
+                "checks": results,
+                "reason": "a check could not run",
+            }
+        if failed:
+            return {
+                "status": "rejected",
+                "gate_id": spec["gate_id"],
+                "contract": spec["contract"],
+                "checks": results,
+                "reason": "at least one check failed",
+            }
         return {
-            "status": "blocked",
+            "status": "accepted",
             "gate_id": spec["gate_id"],
             "contract": spec["contract"],
             "checks": results,
-            "reason": "a check could not run",
         }
-    if failed:
-        return {
-            "status": "rejected",
-            "gate_id": spec["gate_id"],
-            "contract": spec["contract"],
-            "checks": results,
-            "reason": "at least one check failed",
-        }
-    return {
-        "status": "accepted",
-        "gate_id": spec["gate_id"],
-        "contract": spec["contract"],
-        "checks": results,
-    }
+    finally:
+        _cleanup_checkout(checkout)
 
 
 def evaluate(
@@ -132,6 +154,7 @@ def evaluate(
     gate_spec: dict[str, Any] | None = None,
     trusted_keys: list[Any] | None = None,
     home: Path | None = None,
+    expected_commit: str | None = None,
 ) -> dict[str, Any]:
     repo = repo.resolve()
     signature_result = verify(envelope, trusted_keys) if trusted_keys else verify(envelope, home=home)
@@ -140,7 +163,22 @@ def evaluate(
     commit = signature_result["commit"]
     payload = envelope.get("payload", {})
     expected_tree = payload.get("tree")
+    actual_commit = commit_sha(repo)
     actual_tree = tree_sha(repo)
+    if expected_commit is not None and commit != expected_commit:
+        return {
+            "status": "blocked",
+            "reason": "signed commit does not match expected commit",
+            "commit": commit,
+            "expected_commit": expected_commit,
+        }
+    if commit != actual_commit:
+        return {
+            "status": "blocked",
+            "reason": "signed commit does not match checkout HEAD commit",
+            "signed_commit": commit,
+            "checkout_commit": actual_commit,
+        }
     if expected_tree and expected_tree != actual_tree:
         return {
             "status": "blocked",
@@ -158,7 +196,7 @@ def evaluate(
     error = validate_gate_spec(gate_spec)
     if error:
         return {"status": "blocked", "reason": error, "commit": commit}
-    gate_result = run_gate(repo, gate_spec)
+    gate_result = run_gate(repo, gate_spec, commit)
     gate_result["commit"] = commit
     gate_result["tree"] = actual_tree
     return gate_result

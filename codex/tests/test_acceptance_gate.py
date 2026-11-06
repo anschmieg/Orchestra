@@ -116,7 +116,7 @@ class GateTests(unittest.TestCase):
         _git(self.repo, "commit", "-q", "-m", "other")
         result = evaluate(self.repo, envelope, gate_spec=spec, home=self.home)
         self.assertEqual(result["status"], "blocked")
-        self.assertIn("tree", result["reason"])
+        self.assertIn("commit", result["reason"])
 
     def test_validate_gate_spec_rejects_bad_shape(self) -> None:
         self.assertIsNotNone(validate_gate_spec({"gate_id": "x", "contract": "y", "checks": []}))

@@ -1,18 +1,10 @@
-#!/usr/bin/env python3
-"""Durable reconciliation of uncertain T3 launches and restarts.
-
-A launch is identified by a T3 thread id and an idempotency receipt, never by
-re-running a scheduler. Replaying the same receipt returns the recorded
-outcome; an unknown or ambiguous state fails closed instead of spawning a
-duplicate.
-"""
-
 from __future__ import annotations
 
 import argparse
 import json
 import os
 import time
+import fcntl
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +33,60 @@ def _ensure(home: Path | None = None) -> Path:
     return directory
 
 
+def _locked_read(path: Path) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    if not path.is_file():
+        return entries
+    with open(path, "r", encoding="utf-8") as f:
+        fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+        try:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entries.append(json.loads(line))
+                except ValueError:
+                    continue
+        finally:
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+    return entries
+
+
+def _locked_write(path: Path, data: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a", encoding="utf-8") as f:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        try:
+            f.write(data)
+        finally:
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+
+def _locked_check_and_write(path: Path, t3_thread_id: str, receipt: str, entry: dict[str, Any]) -> dict[str, Any]:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a+", encoding="utf-8") as f:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+        try:
+            f.seek(0)
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    existing = json.loads(line)
+                    if (existing.get("t3_thread_id") == t3_thread_id
+                        and existing.get("receipt") == receipt):
+                        replayed = {key: value for key, value in existing.items() if key != "status"}
+                        return {"status": "duplicate", **replayed}
+                except ValueError:
+                    continue
+            f.write(json.dumps(entry, sort_keys=True) + "\n")
+            return {"status": "recorded", **entry}
+        finally:
+            fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+
 def record_launch(
     *,
     t3_thread_id: str,
@@ -58,10 +104,6 @@ def record_launch(
     if not commit or len(commit) != 40:
         return {"status": "blocked", "reason": "commit must be a full SHA"}
     _ensure(home)
-    existing = lookup(t3_thread_id, receipt, home=home)
-    if existing["status"] == "found":
-        recorded = {key: value for key, value in existing.items() if key != "status"}
-        return {"status": "duplicate", **recorded}
     entry = {
         "t3_thread_id": t3_thread_id,
         "receipt": receipt,
@@ -71,31 +113,19 @@ def record_launch(
         "worktree": worktree,
         "recorded_at": time.time(),
     }
-    with receipt_path(home).open("a", encoding="utf-8") as stream:
-        stream.write(json.dumps(entry, sort_keys=True) + "\n")
-    return {"status": "recorded", **entry}
+    return _locked_check_and_write(receipt_path(home), t3_thread_id, receipt, entry)
 
 
 def lookup(
     t3_thread_id: str, receipt: str, *, home: Path | None = None
 ) -> dict[str, Any]:
-    path = receipt_path(home)
-    if not path.is_file():
-        return {"status": "unknown", "t3_thread_id": t3_thread_id, "receipt": receipt}
-    with path.open("r", encoding="utf-8") as stream:
-        for line in stream:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                entry = json.loads(line)
-            except ValueError:
-                continue
-            if (
-                entry.get("t3_thread_id") == t3_thread_id
-                and entry.get("receipt") == receipt
-            ):
-                return {"status": "found", **entry}
+    entries = _locked_read(receipt_path(home))
+    for entry in entries:
+        if (
+            entry.get("t3_thread_id") == t3_thread_id
+            and entry.get("receipt") == receipt
+        ):
+            return {"status": "found", **entry}
     return {"status": "unknown", "t3_thread_id": t3_thread_id, "receipt": receipt}
 
 
@@ -118,20 +148,7 @@ def reconcile(
 
 
 def list_launches(*, home: Path | None = None) -> list[dict[str, Any]]:
-    path = receipt_path(home)
-    if not path.is_file():
-        return []
-    entries: list[dict[str, Any]] = []
-    with path.open("r", encoding="utf-8") as stream:
-        for line in stream:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                entries.append(json.loads(line))
-            except ValueError:
-                continue
-    return entries
+    return _locked_read(receipt_path(home))
 
 
 def main() -> int:
