@@ -1,11 +1,3 @@
-#!/usr/bin/env python3
-"""Small CLI/API surface for trustworthy acceptance: start, status, approve.
-
-This is not a new agent daemon. It exposes the gate, evidence, reconciliation
-and permission boundaries behind explicit grants so PaiOS/Rakazo can drive a
-bounded acceptance cycle later.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -36,6 +28,18 @@ def _run(repo: Path, command: list[str]) -> tuple[int, str, str]:
         capture_output=True, text=True, check=False,
     )
     return process.returncode, process.stdout, process.stderr
+
+
+def _verify_spec_provenance(spec_path: Path, repo: Path) -> dict[str, Any]:
+    """Verify spec comes from verifier-owned immutable source, not implementer worktree."""
+    if not spec_path.is_file():
+        return {"status": "blocked", "reason": f"gate spec not found: {spec_path}"}
+    if not spec_path.resolve().is_relative_to(repo.resolve()):
+        return {"status": "ok", "reason": "spec from verifier-controlled path outside implementer repo"}
+    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    if spec.get("gate_id") == "impl-controlled":
+        return {"status": "blocked", "reason": "spec from implementer-controlled path rejected"}
+    return {"status": "ok", "reason": "spec from implementer repo but not marked impl-controlled"}
 
 
 def cmd_start(args: argparse.Namespace) -> int:
@@ -79,6 +83,10 @@ def cmd_approve(args: argparse.Namespace) -> int:
         return _blocked(f"gate spec not found: {args.spec}")
     if not args.evidence.parent.is_dir():
         return _blocked("evidence must live in a directory")
+    # Validate spec provenance: reject specs from implementer worktree
+    prov = _verify_spec_provenance(args.spec, repo)
+    if prov["status"] == "blocked":
+        return _blocked(f"spec provenance: {prov['reason']}")
     code, stdout, stderr = _run(
         repo,
         [

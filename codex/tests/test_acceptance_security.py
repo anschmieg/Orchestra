@@ -90,7 +90,7 @@ class SecurityRegressionTests(unittest.TestCase):
         gate_path = impl_repo / ".orchestra-acceptance" / "gate.json"
         gate_path.parent.mkdir(parents=True, exist_ok=True)
         gate_path.write_text(
-            json.dumps({"gate_id": "g1", "contract": "test", "checks": [{"name": "c", "command": command}]}, sort_keys=True)
+            json.dumps({"gate_id": "impl-controlled", "contract": "test", "checks": [{"name": "c", "command": command}]}, sort_keys=True)
             + "\n",
             encoding="utf-8",
         )
@@ -99,6 +99,7 @@ class SecurityRegressionTests(unittest.TestCase):
         envelope = sign(payload, Path(self.home) / "verifier_ed25519.pem")
         spec = load_gate_spec(gate_path)
         result = evaluate(impl_repo, envelope, gate_spec=spec, home=self.home)
+        # CLI now blocks impl-controlled specs, but gate still evaluates
         self.assertEqual(result["status"], "accepted")
 
     def test_worktree_mutation_after_signing_immutable_checkout(self):
