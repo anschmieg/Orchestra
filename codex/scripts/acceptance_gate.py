@@ -1,12 +1,4 @@
 #!/usr/bin/env python3
-"""Trustworthy acceptance gate for the Orchestra fork.
-
-A gate is a fail-closed decision over a signed evidence envelope tied to a
-commit. It is the smallest trustworthy acceptance extension: the implementer
-knows the behavioral contract but never the hidden evaluator tests or rubric,
-and a verifier running an immutable commit SHA in a separate boundary can
-reject a self-claimed pass because only its key can sign.
-"""
 
 from __future__ import annotations
 
@@ -35,14 +27,14 @@ from acceptance_evidence import (
 
 HERE = Path(__file__).resolve().parent
 GATE_SPEC_NAME = "gate.json"
+CHECK_TIMEOUT = 300
 
 
 def gate_spec_path(repo: Path) -> Path:
     return repo / ".orchestra-acceptance" / GATE_SPEC_NAME
 
 
-def load_gate_spec(repo: Path) -> dict[str, Any] | None:
-    path = gate_spec_path(repo)
+def load_gate_spec(path: Path) -> dict[str, Any] | None:
     if not path.is_file():
         return None
     try:
@@ -81,13 +73,16 @@ def validate_gate_spec(spec: dict[str, Any]) -> str | None:
     return None
 
 
-def run_check(repo: Path, check: dict[str, Any]) -> dict[str, Any]:
+def run_check(repo: Path, check: dict[str, Any], timeout: int = CHECK_TIMEOUT) -> dict[str, Any]:
     name = check["name"]
     command = list(check["command"])
     try:
         result = subprocess.run(
-            command, cwd=str(repo), check=False, capture_output=True, text=True
+            command, cwd=str(repo), check=False, capture_output=True, text=True,
+            timeout=timeout,
         )
+    except subprocess.TimeoutExpired:
+        return {"name": name, "status": "blocked", "reason": "check timed out"}
     except OSError as error:
         return {"name": name, "status": "blocked", "reason": f"could not start: {error}"}
     if result.returncode == 0:
@@ -134,6 +129,7 @@ def evaluate(
     repo: Path,
     envelope: dict[str, Any],
     *,
+    gate_spec: dict[str, Any] | None = None,
     trusted_keys: list[Any] | None = None,
     home: Path | None = None,
 ) -> dict[str, Any]:
@@ -142,16 +138,6 @@ def evaluate(
     if signature_result["status"] != "ok":
         return signature_result
     commit = signature_result["commit"]
-    spec = load_gate_spec(repo)
-    if spec is None:
-        return {
-            "status": "blocked",
-            "reason": "no .orchestra-acceptance/gate.json contract found at the evidence commit",
-            "commit": commit,
-        }
-    error = validate_gate_spec(spec)
-    if error:
-        return {"status": "blocked", "reason": error, "commit": commit}
     payload = envelope.get("payload", {})
     expected_tree = payload.get("tree")
     actual_tree = tree_sha(repo)
@@ -163,7 +149,16 @@ def evaluate(
             "expected_tree": expected_tree,
             "actual_tree": actual_tree,
         }
-    gate_result = run_gate(repo, spec)
+    if gate_spec is None:
+        return {
+            "status": "blocked",
+            "reason": "gate spec must be provided by the verifier; no spec found",
+            "commit": commit,
+        }
+    error = validate_gate_spec(gate_spec)
+    if error:
+        return {"status": "blocked", "reason": error, "commit": commit}
+    gate_result = run_gate(repo, gate_spec)
     gate_result["commit"] = commit
     gate_result["tree"] = actual_tree
     return gate_result
@@ -174,13 +169,19 @@ def main() -> int:
     parser.add_argument("--repo", type=Path, required=True)
     parser.add_argument("--evidence", type=Path, required=True)
     parser.add_argument("--home", type=Path, default=default_home())
+    parser.add_argument("--spec", type=Path, required=True)
     parser.add_argument("--write", type=Path, default=None)
     args = parser.parse_args()
 
     repo = args.repo.resolve()
     envelope = load_envelope(args.evidence)
     trusted = trusted_verify_keys(args.home)
-    result = evaluate(repo, envelope, trusted_keys=trusted or None)
+    spec = load_gate_spec(args.spec)
+    if spec is None:
+        result = {"status": "blocked", "reason": "could not load gate spec from verifier-provided path"}
+        print(json.dumps(result, sort_keys=True, indent=2))
+        return 1
+    result = evaluate(repo, envelope, gate_spec=spec, trusted_keys=trusted or None, home=args.home)
     output = json.dumps(result, sort_keys=True, indent=2)
     print(output)
     if args.write is not None:

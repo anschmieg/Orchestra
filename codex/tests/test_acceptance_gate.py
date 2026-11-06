@@ -1,21 +1,18 @@
-#!/usr/bin/env python3
-
 from __future__ import annotations
-
-import subprocess
-import sys
-import tempfile
-import unittest
-from pathlib import Path
 
 import json
 import os
+import sys
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
 from acceptance_evidence import build_payload, sign, write_envelope
 from acceptance_gate import evaluate, load_gate_spec, run_gate, validate_gate_spec
-from acceptance_keyring import generate_keypair, load_verify_key
+from acceptance_keyring import generate_keypair
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -38,6 +35,7 @@ class GateTests(unittest.TestCase):
         _git(self.repo, "add", "ok.txt")
         _git(self.repo, "commit", "-q", "-m", "good")
         self.good_commit = _git(self.repo, "rev-parse", "HEAD")
+        self.spec_path = self.repo / ".orchestra-acceptance" / "gate.json"
         generate_keypair(self.home)
 
     def _write_gate(self, repo: Path, command: list[str]) -> Path:
@@ -56,62 +54,92 @@ class GateTests(unittest.TestCase):
     def test_valid_envelope_accepts(self) -> None:
         command = [sys.executable, "-c", "pass"]
         self._write_gate(self.repo, command)
+        spec = load_gate_spec(self.spec_path)
         payload = build_payload(self.repo, files=["ok.txt"])
         envelope = sign(payload, Path(self.home) / "verifier_ed25519.pem")
-        result = evaluate(self.repo, envelope, home=self.home)
+        result = evaluate(self.repo, envelope, gate_spec=spec, home=self.home)
         self.assertEqual(result["status"], "accepted")
 
     def test_unsigned_envelope_rejects(self) -> None:
-        self._write_gate(self.repo, [sys.executable, "-c", "pass"])
+        command = [sys.executable, "-c", "pass"]
+        self._write_gate(self.repo, command)
         payload = build_payload(self.repo, files=["ok.txt"])
         envelope = {"payload": payload, "signature": "00" * 64, "algorithm": "ed25519"}
-        result = evaluate(self.repo, envelope, home=self.home)
+        result = evaluate(self.repo, envelope, gate_spec=None, home=self.home)
         self.assertEqual(result["status"], "blocked")
         self.assertIn("signature", result["reason"])
+
+    def test_missing_gate_spec_blocks(self) -> None:
+        command = [sys.executable, "-c", "pass"]
+        self._write_gate(self.repo, command)
+        payload = build_payload(self.repo, files=["ok.txt"])
+        envelope = sign(payload, Path(self.home) / "verifier_ed25519.pem")
+        result = evaluate(self.repo, envelope, gate_spec=None, home=self.home)
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn("gate spec", result["reason"])
 
     def test_wrong_key_rejects(self) -> None:
         other = Path(tempfile.mkdtemp(prefix="orchestra-other-"))
         generate_keypair(other)
-        self._write_gate(self.repo, [sys.executable, "-c", "pass"])
+        command = [sys.executable, "-c", "pass"]
+        self._write_gate(self.repo, command)
+        spec = load_gate_spec(self.spec_path)
         payload = build_payload(self.repo, files=["ok.txt"])
         envelope = sign(payload, Path(other) / "verifier_ed25519.pem")
-        result = evaluate(self.repo, envelope, home=self.home)
+        result = evaluate(self.repo, envelope, gate_spec=spec, home=self.home)
         self.assertEqual(result["status"], "blocked")
 
     def test_failing_check_rejects(self) -> None:
-        self._write_gate(self.repo, [sys.executable, "-c", "raise SystemExit(7)"])
+        command = [sys.executable, "-c", "raise SystemExit(7)"]
+        self._write_gate(self.repo, command)
+        spec = load_gate_spec(self.spec_path)
         payload = build_payload(self.repo, files=["ok.txt"])
         envelope = sign(payload, Path(self.home) / "verifier_ed25519.pem")
-        result = evaluate(self.repo, envelope, home=self.home)
+        result = evaluate(self.repo, envelope, gate_spec=spec, home=self.home)
         self.assertEqual(result["status"], "rejected")
 
     def test_missing_contract_blocks(self) -> None:
         payload = build_payload(self.repo, files=["ok.txt"])
         envelope = sign(payload, Path(self.home) / "verifier_ed25519.pem")
-        result = evaluate(self.repo, envelope, home=self.home)
+        result = evaluate(self.repo, envelope, gate_spec=None, home=self.home)
         self.assertEqual(result["status"], "blocked")
-        self.assertIn("gate.json", result["reason"])
+        self.assertIn("gate spec", result["reason"])
 
     def test_tree_mismatch_blocks(self) -> None:
         command = [sys.executable, "-c", "pass"]
         self._write_gate(self.repo, command)
+        spec = load_gate_spec(self.spec_path)
         payload = build_payload(self.repo, files=["ok.txt"])
         envelope = sign(payload, Path(self.home) / "verifier_ed25519.pem")
         (self.repo / "other.txt").write_text("x\n", encoding="utf-8")
         _git(self.repo, "add", "other.txt")
         _git(self.repo, "commit", "-q", "-m", "other")
-        result = evaluate(self.repo, envelope, home=self.home)
+        result = evaluate(self.repo, envelope, gate_spec=spec, home=self.home)
         self.assertEqual(result["status"], "blocked")
         self.assertIn("tree", result["reason"])
 
     def test_validate_gate_spec_rejects_bad_shape(self) -> None:
         self.assertIsNotNone(validate_gate_spec({"gate_id": "x", "contract": "y", "checks": []}))
         self.assertIsNotNone(validate_gate_spec({"gate_id": "x", "contract": "y"}))
-        self.assertIsNotNone(validate_gate_spec({"gate_id": "x", "contract": "y", "checks": [{"name": "c", "command": "pass"}]}))
-        self.assertIsNone(validate_gate_spec({"gate_id": "x", "contract": "y", "checks": [{"name": "c", "command": ["python3", "-c", "pass"]}]}))
-
-    def test_load_gate_spec_missing(self) -> None:
+        self.assertIsNotNone(
+            validate_gate_spec({"gate_id": "x", "contract": "y", "checks": [{"name": "c", "command": "pass"}]})
+        )
+        self.assertIsNone(
+            validate_gate_spec({"gate_id": "x", "contract": "y", "checks": [{"name": "c", "command": ["python3", "-c", "pass"]}]}))
         self.assertIsNone(load_gate_spec(self.repo))
+
+    def test_tampered_gate_json_rejected(self) -> None:
+        command = [sys.executable, "-c", "raise SystemExit(1)"]
+        self._write_gate(self.repo, command)
+        spec = load_gate_spec(self.spec_path)
+        payload = build_payload(self.repo, files=["ok.txt"])
+        envelope = sign(payload, Path(self.home) / "verifier_ed25519.pem")
+
+        tampered = {"gate_id": "g1", "contract": "tampered", "checks": [{"name": "c", "command": [sys.executable, "-c", "pass"]}]}
+        self.spec_path.write_text(json.dumps(tampered, sort_keys=True) + "\n", encoding="utf-8")
+
+        result = evaluate(self.repo, envelope, gate_spec=spec, home=self.home)
+        self.assertEqual(result["status"], "rejected")
 
 
 if __name__ == "__main__":

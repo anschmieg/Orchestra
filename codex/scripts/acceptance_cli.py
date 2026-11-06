@@ -75,6 +75,8 @@ def cmd_approve(args: argparse.Namespace) -> int:
         return _blocked(boundary["reason"])
     if not args.evidence.is_file():
         return _blocked(f"evidence file not found: {args.evidence}")
+    if not args.spec.is_file():
+        return _blocked(f"gate spec not found: {args.spec}")
     if not args.evidence.parent.is_dir():
         return _blocked("evidence must live in a directory")
     code, stdout, stderr = _run(
@@ -85,6 +87,8 @@ def cmd_approve(args: argparse.Namespace) -> int:
             str(repo),
             "--evidence",
             str(args.evidence),
+            "--spec",
+            str(args.spec),
             "--home",
             str(args.home),
             "--write",
@@ -139,6 +143,7 @@ def build_parser() -> argparse.ArgumentParser:
     approve = sub.add_parser("approve")
     approve.add_argument("--repo", type=Path, required=True)
     approve.add_argument("--evidence", type=Path, required=True)
+    approve.add_argument("--spec", type=Path, required=True)
     approve.add_argument("--report", type=Path, required=True)
     approve.set_defaults(func=cmd_approve)
 
