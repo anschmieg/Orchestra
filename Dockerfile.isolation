@@ -1,0 +1,14 @@
+
+FROM python:3.11-slim
+WORKDIR /app
+COPY codex/scripts/acceptance_keyring.py /app/
+COPY codex/scripts/acceptance_evidence.py /app/
+COPY codex/scripts/acceptance_gate.py /app/
+COPY codex/scripts/acceptance_reconcile.py /app/
+COPY codex/scripts/acceptance_policy.py /app/
+COPY codex/scripts/acceptance_cli.py /app/
+COPY codex/scripts/_common.py /app/
+RUN pip install --no-cache-dir cryptography
+RUN useradd -m -s /bin/bash verifier
+USER verifier
+ENV HOME=/home/verifier
