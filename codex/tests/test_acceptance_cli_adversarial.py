@@ -41,10 +41,13 @@ class CLIAdversarialTests(unittest.TestCase):
 
         verifier_home = self.tmp / "verifier"
         verifier_home.mkdir()
+        (verifier_home / "grants.json").write_text(
+            json.dumps({"grants": ["manage_keyring", "verify_evidence", "record_launch"]}),
+            encoding="utf-8",
+        )
         subprocess.run(
             [sys.executable, str(SCRIPTS / "acceptance_cli.py"), "--home", str(verifier_home), "enroll"],
             capture_output=True, check=True,
-            env={**os.environ, "ORCHESTRA_ACCEPTANCE_GRANT": "manage_keyring"},
         )
 
         attacker_spec = self.tmp / "attacker-spec.json"

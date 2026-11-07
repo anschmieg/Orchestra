@@ -20,6 +20,26 @@ from acceptance_reconcile import list_launches, lookup, record_launch, reconcile
 HERE = Path(__file__).resolve().parent
 RUNTIME = HERE.parent
 
+VERIFIER_HOME = Path("/etc/orchestra-acceptance")
+VERIFIER_UID = 999
+
+
+def _verifier_principal_check() -> dict[str, Any]:
+    if os.getuid() != VERIFIER_UID:
+        return {"status": "blocked", "reason": f"approve requires verifier UID {VERIFIER_UID}, current UID {os.getuid()}"}
+    home = VERIFIER_HOME
+    if not home.is_dir():
+        return {"status": "blocked", "reason": "verifier trust root not found"}
+    grants_file = home / "grants.json"
+    if not grants_file.is_file():
+        return {"status": "blocked", "reason": "verifier grants file not found"}
+    stat = grants_file.stat()
+    if stat.st_uid != VERIFIER_UID:
+        return {"status": "blocked", "reason": "grants file not owned by verifier"}
+    if stat.st_mode & 0o077:
+        return {"status": "blocked", "reason": "grants file is world/group writable"}
+    return {"status": "ok"}
+
 
 def _run(repo: Path, command: list[str]) -> tuple[int, str, str]:
     process = subprocess.run(
@@ -30,24 +50,12 @@ def _run(repo: Path, command: list[str]) -> tuple[int, str, str]:
     return process.returncode, process.stdout, process.stderr
 
 
-def _verify_spec_provenance(spec_path: Path, repo: Path) -> dict[str, Any]:
-    """Verify spec comes from verifier-owned immutable source, not implementer worktree."""
-    if not spec_path.is_file():
-        return {"status": "blocked", "reason": f"gate spec not found: {spec_path}"}
-    if not spec_path.resolve().is_relative_to(repo.resolve()):
-        return {"status": "ok", "reason": "spec from verifier-controlled path outside implementer repo"}
-    spec = json.loads(spec_path.read_text(encoding="utf-8"))
-    if spec.get("gate_id") == "impl-controlled":
-        return {"status": "blocked", "reason": "spec from implementer-controlled path rejected"}
-    return {"status": "ok", "reason": "spec from implementer repo but not marked impl-controlled"}
-
-
 def cmd_start(args: argparse.Namespace) -> int:
     repo = args.repo.resolve()
-    grant = require("record_launch")
-    if grant["status"] != "blocked" and not os.environ.get("ORCHESTRA_ACCEPTANCE_GRANT"):
-        return _blocked("record_launch grant required for start")
-    boundary = boundary_check(grant="record_launch", repo=repo)
+    grant = require("record_launch", home=args.home)
+    if grant["status"] != "ok":
+        return _blocked(grant["reason"])
+    boundary = boundary_check(grant="record_launch", repo=repo, home=args.home)
     if boundary["status"] == "blocked":
         return _blocked(boundary["reason"])
     result = record_launch(
@@ -73,8 +81,15 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 
 def cmd_approve(args: argparse.Namespace) -> int:
+    principal = _verifier_principal_check()
+    if principal["status"] != "ok":
+        return _blocked(principal["reason"])
     repo = args.repo.resolve()
-    boundary = boundary_check(grant="verify_evidence", repo=repo)
+    if args.spec.resolve().is_relative_to(repo.resolve()):
+        return _blocked("gate spec must come from verifier trust root, not implementer repo")
+    if not args.spec.resolve().is_relative_to(VERIFIER_HOME.resolve()):
+        return _blocked("gate spec must be in verifier trust root")
+    boundary = boundary_check(grant="verify_evidence", repo=repo, home=VERIFIER_HOME)
     if boundary["status"] == "blocked":
         return _blocked(boundary["reason"])
     if not args.evidence.is_file():
@@ -83,10 +98,8 @@ def cmd_approve(args: argparse.Namespace) -> int:
         return _blocked(f"gate spec not found: {args.spec}")
     if not args.evidence.parent.is_dir():
         return _blocked("evidence must live in a directory")
-    # Validate spec provenance: reject specs from implementer worktree
-    prov = _verify_spec_provenance(args.spec, repo)
-    if prov["status"] == "blocked":
-        return _blocked(f"spec provenance: {prov['reason']}")
+    if not args.report.resolve().parent.is_relative_to(VERIFIER_HOME.resolve()):
+        return _blocked("report must be written to verifier trust root")
     code, stdout, stderr = _run(
         repo,
         [
@@ -98,7 +111,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
             "--spec",
             str(args.spec),
             "--home",
-            str(args.home),
+            str(VERIFIER_HOME),
             "--write",
             str(args.report),
         ],
@@ -110,7 +123,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
 
 
 def cmd_enroll(args: argparse.Namespace) -> int:
-    boundary = boundary_check(grant="manage_keyring")
+    boundary = boundary_check(grant="manage_keyring", repo=None)
     if boundary["status"] == "blocked":
         return _blocked(boundary["reason"])
     result = generate_keypair(args.home)

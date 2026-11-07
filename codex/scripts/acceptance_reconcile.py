@@ -82,6 +82,8 @@ def _locked_check_and_write(path: Path, t3_thread_id: str, receipt: str, entry: 
                 except ValueError:
                     continue
             f.write(json.dumps(entry, sort_keys=True) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
             return {"status": "recorded", **entry}
         finally:
             fcntl.flock(f.fileno(), fcntl.LOCK_UN)
