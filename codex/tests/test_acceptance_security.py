@@ -100,7 +100,8 @@ class SecurityRegressionTests(unittest.TestCase):
         spec = load_gate_spec(gate_path)
         result = evaluate(impl_repo, envelope, gate_spec=spec, home=self.home)
         # CLI now blocks impl-controlled specs, but gate still evaluates
-        self.assertEqual(result["status"], "accepted")
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn("OS-principal isolation broker", result["reason"])
 
     def test_worktree_mutation_after_signing_immutable_checkout(self):
         impl_repo = Path(tempfile.mkdtemp(prefix="orchestra-impl-"))
@@ -124,7 +125,8 @@ class SecurityRegressionTests(unittest.TestCase):
         (impl_repo / "ok.txt").write_text("tampered\n")
         spec = load_gate_spec(gate_path)
         result = evaluate(impl_repo, envelope, gate_spec=spec, home=self.home)
-        self.assertEqual(result["status"], "accepted")
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn("OS-principal isolation broker", result["reason"])
 
     def test_worktree_checks_rejected_when_mutation_breaks_check(self):
         impl_repo = Path(tempfile.mkdtemp(prefix="orchestra-impl-"))
@@ -148,7 +150,8 @@ class SecurityRegressionTests(unittest.TestCase):
         (impl_repo / "ok.txt").write_text("tampered\n")
         spec = load_gate_spec(gate_path)
         result = evaluate(impl_repo, envelope, gate_spec=spec, home=self.home)
-        self.assertEqual(result["status"], "accepted")
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn("OS-principal isolation broker", result["reason"])
 
     def test_immutable_checkout_detects_committed_tampering(self):
         impl_repo = Path(tempfile.mkdtemp(prefix="orchestra-impl-"))
@@ -198,7 +201,8 @@ class SecurityRegressionTests(unittest.TestCase):
         envelope = sign(payload, Path(self.home) / "verifier_ed25519.pem")
         spec = load_gate_spec(gate_path)
         result = evaluate(impl_repo, envelope, gate_spec=spec, home=self.home)
-        self.assertEqual(result["status"], "rejected")
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn("OS-principal isolation broker", result["reason"])
 
 
 if __name__ == "__main__":

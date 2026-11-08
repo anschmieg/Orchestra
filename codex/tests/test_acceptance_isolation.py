@@ -9,23 +9,21 @@ import tempfile
 import unittest
 
 
-class RealIsolationTests(unittest.TestCase):
+class ProcessSeparationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.base = pathlib.Path("/home/t3/.t3/scratch/2026-11-06-goal-implement-the-agreed-orchestra-07c159f0/fork")
+        cls.base = pathlib.Path(__file__).resolve().parents[2]
         cls.scripts = cls.base / "codex/scripts"
-        cls.impl_home = pathlib.Path("/tmp/iso-impl-home")
-        cls.verify_home = pathlib.Path("/tmp/iso-verify-home")
-        cls.impl_repo = pathlib.Path("/tmp/iso-impl-repo")
-        for d in (cls.impl_home, cls.verify_home, cls.impl_repo):
-            d.mkdir(parents=True, exist_ok=True)
 
     def setUp(self):
-        import shutil
-        for p in (self.impl_repo,):
-            if p.exists():
-                shutil.rmtree(p)
-            p.mkdir(parents=True)
+        self.temporary = tempfile.TemporaryDirectory(prefix="orchestra-process-")
+        self.addCleanup(self.temporary.cleanup)
+        base = pathlib.Path(self.temporary.name)
+        self.impl_home = base / "impl-home"
+        self.verify_home = base / "verify-home"
+        self.impl_repo = base / "impl-repo"
+        for directory in (self.impl_home, self.verify_home, self.impl_repo):
+            directory.mkdir()
 
     def _run_script(self, code, home=None, env_extra=None):
         env = os.environ.copy()

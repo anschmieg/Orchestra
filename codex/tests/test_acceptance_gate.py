@@ -51,14 +51,15 @@ class GateTests(unittest.TestCase):
         )
         return path
 
-    def test_valid_envelope_accepts(self) -> None:
+    def test_valid_envelope_blocks_without_broker(self) -> None:
         command = [sys.executable, "-c", "pass"]
         self._write_gate(self.repo, command)
         spec = load_gate_spec(self.spec_path)
         payload = build_payload(self.repo, files=["ok.txt"])
         envelope = sign(payload, Path(self.home) / "verifier_ed25519.pem")
         result = evaluate(self.repo, envelope, gate_spec=spec, home=self.home)
-        self.assertEqual(result["status"], "accepted")
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn("OS-principal isolation broker", result["reason"])
 
     def test_unsigned_envelope_rejects(self) -> None:
         command = [sys.executable, "-c", "pass"]
@@ -89,14 +90,15 @@ class GateTests(unittest.TestCase):
         result = evaluate(self.repo, envelope, gate_spec=spec, home=self.home)
         self.assertEqual(result["status"], "blocked")
 
-    def test_failing_check_rejects(self) -> None:
+    def test_failing_check_not_executed_without_broker(self) -> None:
         command = [sys.executable, "-c", "raise SystemExit(7)"]
         self._write_gate(self.repo, command)
         spec = load_gate_spec(self.spec_path)
         payload = build_payload(self.repo, files=["ok.txt"])
         envelope = sign(payload, Path(self.home) / "verifier_ed25519.pem")
         result = evaluate(self.repo, envelope, gate_spec=spec, home=self.home)
-        self.assertEqual(result["status"], "rejected")
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn("OS-principal isolation broker", result["reason"])
 
     def test_missing_contract_blocks(self) -> None:
         payload = build_payload(self.repo, files=["ok.txt"])
@@ -128,7 +130,7 @@ class GateTests(unittest.TestCase):
             validate_gate_spec({"gate_id": "x", "contract": "y", "checks": [{"name": "c", "command": ["python3", "-c", "pass"]}]}))
         self.assertIsNone(load_gate_spec(self.repo))
 
-    def test_tampered_gate_json_rejected(self) -> None:
+    def test_tampered_gate_json_cannot_execute_without_broker(self) -> None:
         command = [sys.executable, "-c", "raise SystemExit(1)"]
         self._write_gate(self.repo, command)
         spec = load_gate_spec(self.spec_path)
@@ -139,7 +141,8 @@ class GateTests(unittest.TestCase):
         self.spec_path.write_text(json.dumps(tampered, sort_keys=True) + "\n", encoding="utf-8")
 
         result = evaluate(self.repo, envelope, gate_spec=spec, home=self.home)
-        self.assertEqual(result["status"], "rejected")
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn("OS-principal isolation broker", result["reason"])
 
 
 if __name__ == "__main__":

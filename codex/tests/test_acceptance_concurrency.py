@@ -25,7 +25,7 @@ class ConcurrencyRecoveryTests(unittest.TestCase):
             try:
                 record_launch(
                     t3_thread_id="t3:concurrent", receipt="receipt-concurrent",
-                    task_id="task-1", phase="implement", commit="a" * 40,
+                    task_id="task-1", phase="implement", commit="a" * 40, worktree="/tmp/task-record", 
                     home=self.home,
                 )
             except Exception as e:
@@ -79,7 +79,7 @@ class ConcurrencyRecoveryTests(unittest.TestCase):
     def test_jsonl_append_atomic_via_os_write(self):
         record_launch(
             t3_thread_id="t3:atomic", receipt="r3", task_id="task-3",
-            phase="implement", commit="d" * 40, home=self.home,
+            phase="implement", commit="d" * 40, worktree="/tmp/task-record",  home=self.home,
         )
         launches = list_launches(home=self.home)
         self.assertEqual(len(launches), 1)

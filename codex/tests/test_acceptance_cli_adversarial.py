@@ -40,7 +40,7 @@ class CLIAdversarialTests(unittest.TestCase):
             sys.executable, str(CLI), "--home", str(self.tmp / "state"), "start",
             "--repo", str(repo), "--t3-thread-id", "thread-1",
             "--receipt", "receipt-1", "--task-id", "task-1", "--phase", "implement",
-            "--commit", "a" * 40,
+            "--commit", "a" * 40, "--worktree", str(self.tmp / "worktree"),
         ]
         first = subprocess.run(argv, capture_output=True, text=True, env=env)
         self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
@@ -89,6 +89,7 @@ class CLIAdversarialTests(unittest.TestCase):
         subprocess.run(
             [sys.executable, str(SCRIPTS / "acceptance_cli.py"), "--home", str(verifier_home), "enroll"],
             capture_output=True, check=True,
+            env={**os.environ, "ORCHESTRA_ACCEPTANCE_GRANT": "manage_keyring"},
         )
 
         attacker_spec = self.tmp / "attacker-spec.json"

@@ -32,32 +32,21 @@ It exposes a small CLI/API surface (`start`, `status`, `approve`, `enroll`,
    cannot sign.
 2. Only a verifier holding the signing key can produce the signature. The
    keyring lives under `~/.orchestra-acceptance`, never in a task checkout.
-3. The gate loads `.orchestra-acceptance/gate.json` from the evidence commit
-   and re-runs its checks. It compares the signed tree with the checked-out
-   tree, so tampering after signing is detected.
+3. The gate verifies signed evidence against the commit and verifier-provided spec. **Until a separately verified privileged OS-principal broker is implemented, all evaluator checks are blocked without launching any process.** There is no same-UID fallback, including with chmod, an environment variable or an unprivileged container.
 4. A result is `accepted`, `rejected` or `blocked`. Unknown or ambiguous
    states are `blocked`; there is no silent pass.
 
 ## Isolation
 
-The verifier runs an immutable commit SHA in a separate OS/container/security
-boundary. It shares no secret with the implementer and writes no result path
-the implementer can read. Evidence is valid only against a trusted public key;
-a self-claimed pass is rejected because the implementer has no signing key.
+**Current status: NO-GO.** OS-principal isolation and a root-controlled broker have not been demonstrated or installed. Commit-bound signatures do not make execution safe. Untrusted checks cannot execute, and no accepted result can be issued by the current gate. A future broker must prove distinct UIDs, secret isolation, root-controlled provisioning and cgroup/process-tree cleanup after broker SIGKILL and double-fork. Installation requires explicit operator authorization.
 
 ## Adversarial pilot
 
-`codex/tests/test_acceptance_adversarial.py` deliberately produces a false
-PASS and proves the gate rejects it: unsigned envelope, wrong-key signature,
-a deliberately failing implementation and tampered-after-signing evidence are
-all rejected, while a legitimately signed pass is accepted.
+`codex/tests/test_acceptance_adversarial.py` checks signature, key and commit rejection. `codex/tests/test_acceptance_fail_closed_milestone.py` additionally proves that unprivileged execution never launches a malicious check, so a dummy private key cannot be accessed and a forged PASS marker cannot be written. These are non-privileged regression tests, **not** installed-broker acceptance.
 
 ## Recovery
 
-`codex/tests/test_acceptance_recovery.py` proves that a duplicate T3 launch
-replays from its receipt rather than spawning a second scheduler run, that an
-unknown launch fails closed, and that a crashed or unstartable check is
-`blocked` or `rejected`, never silently accepted.
+`codex/tests/test_acceptance_recovery.py` verifies receipt replay and that all checks remain blocked without a broker. Recording requires complete canonical task, phase, 40-hex commit and absolute worktree identities before ledger creation; repeat requests with unchanged identity are idempotent and changed identities fail closed.
 
 ## Grants
 

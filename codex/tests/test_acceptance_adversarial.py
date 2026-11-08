@@ -31,7 +31,7 @@ class AdversarialPilotTests(unittest.TestCase):
     def _git(self, repo: Path, *args: str) -> str:
         return _git(repo, *args)
 
-    def test_legitimate_signed_pass_is_accepted(self) -> None:
+    def test_legitimate_signed_pass_blocks_without_broker(self) -> None:
         impl_repo = Path(tempfile.mkdtemp(prefix="orchestra-impl-"))
         _git(impl_repo, "init", "-q", "-b", "main")
         _git(impl_repo, "config", "user.name", "Pilot")
@@ -51,7 +51,8 @@ class AdversarialPilotTests(unittest.TestCase):
         payload = build_payload(impl_repo, files=["ok.txt"])
         envelope = sign(payload, Path(self.home) / "verifier_ed25519.pem")
         result = evaluate(impl_repo, envelope, gate_spec=json.loads(gate_path.read_text(encoding="utf-8")), home=self.home)
-        self.assertEqual(result["status"], "accepted")
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn("OS-principal isolation broker", result["reason"])
 
     def test_self_claimed_unsigned_pass_is_rejected(self) -> None:
         impl_repo = Path(tempfile.mkdtemp(prefix="orchestra-impl-"))
@@ -100,7 +101,7 @@ class AdversarialPilotTests(unittest.TestCase):
         result = evaluate(impl_repo, envelope, gate_spec=json.loads(gate_path.read_text(encoding="utf-8")), home=self.home)
         self.assertNotEqual(result["status"], "accepted")
 
-    def test_deliberately_failing_implementation_is_rejected(self) -> None:
+    def test_failing_implementation_not_executed_without_broker(self) -> None:
         impl_repo = Path(tempfile.mkdtemp(prefix="orchestra-impl-"))
         _git(impl_repo, "init", "-q", "-b", "main")
         _git(impl_repo, "config", "user.name", "Pilot")
@@ -119,7 +120,8 @@ class AdversarialPilotTests(unittest.TestCase):
         payload = build_payload(impl_repo, files=["ok.txt"])
         envelope = sign(payload, Path(self.home) / "verifier_ed25519.pem")
         result = evaluate(impl_repo, envelope, gate_spec=json.loads(gate_path.read_text(encoding="utf-8")), home=self.home)
-        self.assertEqual(result["status"], "rejected")
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn("OS-principal isolation broker", result["reason"])
 
     def test_tampered_evidence_after_signing_is_rejected(self) -> None:
         impl_repo = Path(tempfile.mkdtemp(prefix="orchestra-impl-"))

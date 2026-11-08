@@ -24,12 +24,12 @@ class DuplicateRequestRecoveryTests(unittest.TestCase):
     def test_duplicate_launch_replays_not_duplicates(self) -> None:
         first = record_launch(
             t3_thread_id="t3:abc", receipt="receipt-1", task_id="task-1",
-            phase="implement", commit="a" * 40, home=self.home,
+            phase="implement", commit="a" * 40, worktree="/tmp/receipt-1", home=self.home,
         )
         self.assertEqual(first["status"], "recorded")
         second = record_launch(
             t3_thread_id="t3:abc", receipt="receipt-1", task_id="task-1",
-            phase="implement", commit="a" * 40, home=self.home,
+            phase="implement", commit="a" * 40, worktree="/tmp/receipt-1", home=self.home,
         )
         self.assertEqual(second["status"], "duplicate")
         self.assertEqual(len(list_launches(home=self.home)), 1)
@@ -56,6 +56,8 @@ class CrashAndTimeoutRecoveryTests(unittest.TestCase):
     def setUp(self) -> None:
         self.repo = Path(tempfile.mkdtemp(prefix="orchestra-crashrepo-"))
         subprocess.run(["git", "-C", str(self.repo), "init", "-q", "-b", "main"], check=True)
+        subprocess.run(["git", "-C", str(self.repo), "config", "user.name", "Test"], check=True)
+        subprocess.run(["git", "-C", str(self.repo), "config", "user.email", "test@example.invalid"], check=True)
         (self.repo / "x.txt").write_text("x\n", encoding="utf-8")
         subprocess.run(["git", "-C", str(self.repo), "add", "x.txt"], check=True)
         subprocess.run(["git", "-C", str(self.repo), "commit", "-q", "-m", "init"], check=True)
@@ -67,8 +69,9 @@ class CrashAndTimeoutRecoveryTests(unittest.TestCase):
             "checks": [{"name": "crash", "command": [sys.executable, "-c", "raise SystemExit(137)"]}],
         }
         result = run_gate(self.repo, spec, "HEAD")
-        self.assertEqual(result["status"], "rejected")
-        self.assertEqual(result["checks"][0]["status"], "failed")
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn("OS-principal isolation broker", result["reason"])
+        self.assertEqual(result["checks"][0]["status"], "blocked")
 
     def test_unstartable_check_is_blocked(self) -> None:
         spec = {
@@ -80,14 +83,15 @@ class CrashAndTimeoutRecoveryTests(unittest.TestCase):
         self.assertEqual(result["status"], "blocked")
         self.assertEqual(result["checks"][0]["status"], "blocked")
 
-    def test_passing_check_is_accepted(self) -> None:
+    def test_passing_check_is_blocked_without_broker(self) -> None:
         spec = {
             "gate_id": "g",
             "contract": "ok",
             "checks": [{"name": "ok", "command": [sys.executable, "-c", "pass"]}],
         }
         result = run_gate(self.repo, spec, "HEAD")
-        self.assertEqual(result["status"], "accepted")
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn("OS-principal isolation broker", result["reason"])
 
 
 if __name__ == "__main__":

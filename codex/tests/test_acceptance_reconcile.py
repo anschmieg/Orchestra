@@ -20,7 +20,7 @@ class ReconcileTests(unittest.TestCase):
             receipt="r1",
             task_id="task-1",
             phase="implement",
-            commit="a" * 40,
+            commit="a" * 40, worktree="/tmp/task-record", 
             home=self.home,
         )
         self.assertEqual(result["status"], "recorded")
@@ -31,11 +31,11 @@ class ReconcileTests(unittest.TestCase):
     def test_duplicate_receipt_is_not_replayed(self) -> None:
         record_launch(
             t3_thread_id="t1", receipt="r1", task_id="task-1",
-            phase="implement", commit="a" * 40, home=self.home,
+            phase="implement", commit="a" * 40, worktree="/tmp/task-record",  home=self.home,
         )
         second = record_launch(
             t3_thread_id="t1", receipt="r1", task_id="task-1",
-            phase="implement", commit="a" * 40, home=self.home,
+            phase="implement", commit="a" * 40, worktree="/tmp/task-record",  home=self.home,
         )
         self.assertEqual(second["status"], "duplicate")
 
@@ -109,11 +109,11 @@ class ReconcileTests(unittest.TestCase):
     def test_list_returns_all_launches(self) -> None:
         record_launch(
             t3_thread_id="t1", receipt="r1", task_id="task-1",
-            phase="implement", commit="a" * 40, home=self.home,
+            phase="implement", commit="a" * 40, worktree="/tmp/task-record",  home=self.home,
         )
         record_launch(
             t3_thread_id="t2", receipt="r2", task_id="task-2",
-            phase="review", commit="b" * 40, home=self.home,
+            phase="review", commit="b" * 40, worktree="/tmp/task-record",  home=self.home,
         )
         launches = list_launches(home=self.home)
         self.assertEqual(len(launches), 2)
