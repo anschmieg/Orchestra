@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import time
 import fcntl
@@ -33,24 +34,59 @@ def _ensure(home: Path | None = None) -> Path:
     return directory
 
 
-def _locked_read(path: Path) -> list[dict[str, Any]]:
+def _no_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate receipt ledger JSON key")
+        result[key] = value
+    return result
+
+
+def _read_validated_entries(lines: Any) -> list[dict[str, Any]]:
+    """Reject ambiguous or torn ledger history, including after a matching receipt."""
     entries: list[dict[str, Any]] = []
+    receipts: set[str] = set()
+    required = {"t3_thread_id", "receipt", "task_id", "phase", "commit", "worktree", "recorded_at"}
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line, object_pairs_hook=_no_duplicate_json_keys)
+        except ValueError as error:
+            raise ValueError("corrupt receipt ledger") from error
+        if not isinstance(entry, dict) or set(entry) != required:
+            raise ValueError("corrupt receipt ledger")
+        if _invalid_identity(*(entry[field] for field in
+                ("t3_thread_id", "receipt", "task_id", "phase", "commit", "worktree"))):
+            raise ValueError("corrupt receipt ledger")
+        recorded_at = entry["recorded_at"]
+        try:
+            valid_timestamp = (
+                not isinstance(recorded_at, bool)
+                and isinstance(recorded_at, (int, float))
+                and math.isfinite(recorded_at) and recorded_at > 0
+            )
+        except OverflowError:
+            valid_timestamp = False
+        if not valid_timestamp:
+            raise ValueError("corrupt receipt ledger")
+        if entry["receipt"] in receipts:
+            raise ValueError("ambiguous duplicate receipt ledger")
+        receipts.add(entry["receipt"])
+        entries.append(entry)
+    return entries
+
+
+def _locked_read(path: Path) -> list[dict[str, Any]]:
     if not path.is_file():
-        return entries
+        return []
     with open(path, "r", encoding="utf-8") as f:
         fcntl.flock(f.fileno(), fcntl.LOCK_SH)
         try:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    entries.append(json.loads(line))
-                except ValueError as error:
-                    raise ValueError("corrupt receipt ledger") from error
+            return _read_validated_entries(f)
         finally:
             fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-    return entries
 
 
 def _locked_write(path: Path, data: str) -> None:
@@ -69,25 +105,18 @@ def _locked_check_and_write(path: Path, t3_thread_id: str, receipt: str, entry: 
         fcntl.flock(f.fileno(), fcntl.LOCK_EX)
         try:
             f.seek(0)
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    existing = json.loads(line)
-                    if (existing.get("t3_thread_id") == t3_thread_id
-                        and existing.get("receipt") == receipt):
-                        if any(
-                            existing.get(field) != entry[field]
-                            for field in ("task_id", "phase", "commit", "worktree")
-                        ):
-                            return {"status": "blocked", "reason": "receipt context mismatch"}
-                        replayed = {key: value for key, value in existing.items() if key != "status"}
-                        return {"status": "duplicate", **replayed}
-                    if existing.get("receipt") == receipt:
+            try:
+                existing_entries = _read_validated_entries(f)
+            except ValueError:
+                return {"status": "blocked", "reason": "receipt ledger corrupt or ambiguous"}
+            for existing in existing_entries:
+                if existing["receipt"] == receipt:
+                    if existing["t3_thread_id"] != t3_thread_id:
                         return {"status": "blocked", "reason": "receipt belongs to another thread"}
-                except ValueError:
-                    return {"status": "blocked", "reason": "corrupt receipt ledger"}
+                    if any(existing[field] != entry[field]
+                           for field in ("task_id", "phase", "commit", "worktree")):
+                        return {"status": "blocked", "reason": "receipt context mismatch"}
+                    return {"status": "duplicate", **existing}
             f.write(json.dumps(entry, sort_keys=True) + "\n")
             f.flush()
             os.fsync(f.fileno())
