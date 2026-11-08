@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
-      SOURCE_SHA: db09baab99bcb4b6444dc19b01d9315ea0cb52fb
+      SOURCE_SHA: ceeb6a6bdfcc1b58ede135afbcb6e71022181122
       PYTHONDONTWRITEBYTECODE: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -37,6 +37,14 @@ jobs:
           printf 'EXACT_SOURCE=%s\n' "$(git rev-parse HEAD)"
           printf 'TREE=%s\n' "$(git rev-parse HEAD^{tree})"
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - name: Targeted broker IPC adversarial regression
+        shell: bash
+        run: |
+          set +e
+          python3 -m unittest discover -s codex/tests -p 'test_acceptance_broker_ipc.py' -v
+          rc=$?
+          printf "COMMAND=python3 -m unittest discover -s codex/tests -p test_acceptance_broker_ipc.py -v EXIT=%s\\n" "$rc"
+          exit "$rc"
       - name: Official full validation
         shell: bash
         run: |
