@@ -1,0 +1,49 @@
+name: Independent exact-source acceptance
+on:
+  push:
+    branches:
+      - verification/orchestra-20261108-full-suite
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  official-and-adversarial:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      SOURCE_SHA: 52a5cc2dcfbe61e794d3ddc5fa6ea2cf48fc24e3
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.11'
+      - name: Assert exact published source
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'EXACT_SOURCE=%s\n' "$(git rev-parse HEAD)"
+          printf 'TREE=%s\n' "$(git rev-parse HEAD^{tree})"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - name: Official full validation
+        shell: bash
+        run: |
+          set +e
+          python3 codex/scripts/validate_suite.py --full --comment-base HEAD^
+          rc=$?
+          printf 'COMMAND=python3 codex/scripts/validate_suite.py --full --comment-base HEAD^ EXIT=%s\n' "$rc"
+          exit "$rc"
+      - name: Adversarial acceptance suite (explicit count)
+        shell: bash
+        run: |
+          set +e
+          python3 -m unittest discover -s codex/tests -p 'test_acceptance_*.py' -v
+          rc=$?
+          printf "COMMAND=python3 -m unittest discover -s codex/tests -p 'test_acceptance_*.py' -v EXIT=%s\n" "$rc"
+          exit "$rc"
