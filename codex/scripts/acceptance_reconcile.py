@@ -46,8 +46,8 @@ def _locked_read(path: Path) -> list[dict[str, Any]]:
                     continue
                 try:
                     entries.append(json.loads(line))
-                except ValueError:
-                    continue
+                except ValueError as error:
+                    raise ValueError("corrupt receipt ledger") from error
         finally:
             fcntl.flock(f.fileno(), fcntl.LOCK_UN)
     return entries
@@ -77,10 +77,17 @@ def _locked_check_and_write(path: Path, t3_thread_id: str, receipt: str, entry: 
                     existing = json.loads(line)
                     if (existing.get("t3_thread_id") == t3_thread_id
                         and existing.get("receipt") == receipt):
+                        if any(
+                            existing.get(field) != entry[field]
+                            for field in ("task_id", "phase", "commit", "worktree")
+                        ):
+                            return {"status": "blocked", "reason": "receipt context mismatch"}
                         replayed = {key: value for key, value in existing.items() if key != "status"}
                         return {"status": "duplicate", **replayed}
+                    if existing.get("receipt") == receipt:
+                        return {"status": "blocked", "reason": "receipt belongs to another thread"}
                 except ValueError:
-                    continue
+                    return {"status": "blocked", "reason": "corrupt receipt ledger"}
             f.write(json.dumps(entry, sort_keys=True) + "\n")
             f.flush()
             os.fsync(f.fileno())
@@ -103,8 +110,13 @@ def record_launch(
         return {"status": "blocked", "reason": "t3_thread_id is required"}
     if not receipt or not isinstance(receipt, str):
         return {"status": "blocked", "reason": "receipt is required"}
-    if not commit or len(commit) != 40:
-        return {"status": "blocked", "reason": "commit must be a full SHA"}
+    if not isinstance(commit, str) or len(commit) != 40 or any(
+        digit not in "0123456789abcdefABCDEF" for digit in commit
+    ):
+        return {"status": "blocked", "reason": "commit must be a full hexadecimal SHA"}
+    for field, value in (("task_id", task_id), ("phase", phase)):
+        if not isinstance(value, str) or not value.strip():
+            return {"status": "blocked", "reason": f"{field} is required"}
     _ensure(home)
     entry = {
         "t3_thread_id": t3_thread_id,
@@ -121,7 +133,10 @@ def record_launch(
 def lookup(
     t3_thread_id: str, receipt: str, *, home: Path | None = None
 ) -> dict[str, Any]:
-    entries = _locked_read(receipt_path(home))
+    try:
+        entries = _locked_read(receipt_path(home))
+    except (OSError, ValueError):
+        return {"status": "blocked", "reason": "receipt ledger unreadable or corrupt"}
     for entry in entries:
         if (
             entry.get("t3_thread_id") == t3_thread_id
@@ -135,10 +150,24 @@ def reconcile(
     t3_thread_id: str,
     receipt: str,
     *,
+    task_id: str | None = None,
+    phase: str | None = None,
+    commit: str | None = None,
+    worktree: str | None = None,
     home: Path | None = None,
 ) -> dict[str, Any]:
     found = lookup(t3_thread_id, receipt, home=home)
+    if found["status"] == "blocked":
+        return found
     if found["status"] == "found":
+        expected = {"task_id": task_id, "phase": phase, "commit": commit, "worktree": worktree}
+        if any(not isinstance(value, str) or not value for value in expected.values()):
+            return {
+                "status": "blocked",
+                "reason": "replay requires task_id, phase, commit and worktree",
+            }
+        if any(found.get(field) != value for field, value in expected.items()):
+            return {"status": "blocked", "reason": "receipt context mismatch"}
         replayed = {key: value for key, value in found.items() if key != "status"}
         return {"status": "replayed", "reason": "duplicate T3 launch replayed from receipt", **replayed}
     return {
@@ -170,6 +199,10 @@ def main() -> int:
     rec = sub.add_parser("reconcile")
     rec.add_argument("--t3-thread-id", required=True)
     rec.add_argument("--receipt", required=True)
+    rec.add_argument("--task-id", required=True)
+    rec.add_argument("--phase", required=True)
+    rec.add_argument("--commit", required=True)
+    rec.add_argument("--worktree", required=True)
     sub.add_parser("list")
     args = parser.parse_args()
     if args.action == "record":
@@ -185,7 +218,10 @@ def main() -> int:
     elif args.action == "lookup":
         result = lookup(args.t3_thread_id, args.receipt, home=args.home)
     elif args.action == "reconcile":
-        result = reconcile(args.t3_thread_id, args.receipt, home=args.home)
+        result = reconcile(
+            args.t3_thread_id, args.receipt, task_id=args.task_id,
+            phase=args.phase, commit=args.commit, worktree=args.worktree, home=args.home,
+        )
     else:
         result = {"status": "ok", "launches": list_launches(home=args.home)}
     print(json.dumps(result, sort_keys=True))

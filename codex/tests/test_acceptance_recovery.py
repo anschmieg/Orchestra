@@ -37,9 +37,12 @@ class DuplicateRequestRecoveryTests(unittest.TestCase):
     def test_reconcile_after_restart_replays(self) -> None:
         record_launch(
             t3_thread_id="t3:restart", receipt="r", task_id="task-2",
-            phase="review", commit="b" * 40, home=self.home,
+            phase="review", commit="b" * 40, worktree="/tmp/restart", home=self.home,
         )
-        result = reconcile("t3:restart", "r", home=self.home)
+        result = reconcile(
+            "t3:restart", "r", task_id="task-2", phase="review",
+            commit="b" * 40, worktree="/tmp/restart", home=self.home,
+        )
         self.assertEqual(result["status"], "replayed")
         self.assertEqual(result["task_id"], "task-2")
 

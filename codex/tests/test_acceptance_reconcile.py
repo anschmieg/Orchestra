@@ -47,9 +47,12 @@ class ReconcileTests(unittest.TestCase):
     def test_reconcile_known_replays(self) -> None:
         record_launch(
             t3_thread_id="t1", receipt="r1", task_id="task-1",
-            phase="implement", commit="a" * 40, home=self.home,
+            phase="implement", commit="a" * 40, worktree="/tmp/task-1", home=self.home,
         )
-        result = reconcile("t1", "r1", home=self.home)
+        result = reconcile(
+            "t1", "r1", task_id="task-1", phase="implement",
+            commit="a" * 40, worktree="/tmp/task-1", home=self.home,
+        )
         self.assertEqual(result["status"], "replayed")
 
     def test_invalid_commit_rejected(self) -> None:
@@ -58,6 +61,50 @@ class ReconcileTests(unittest.TestCase):
             phase="implement", commit="short", home=self.home,
         )
         self.assertEqual(result["status"], "blocked")
+
+
+    def test_receipt_reuse_with_changed_context_is_blocked(self) -> None:
+        original = dict(t3_thread_id="t1", receipt="r1", task_id="task-1",
+                        phase="implement", commit="a" * 40, worktree="/tmp/task-1")
+        self.assertEqual(record_launch(**original, home=self.home)["status"], "recorded")
+        self.assertEqual(record_launch(**original, home=self.home)["status"], "duplicate")
+        for field, replacement in (
+            ("task_id", "task-2"), ("phase", "review"),
+            ("commit", "b" * 40), ("worktree", "/tmp/task-2"),
+            ("t3_thread_id", "t2"),
+        ):
+            changed = {**original, field: replacement}
+            self.assertEqual(record_launch(**changed, home=self.home)["status"], "blocked", field)
+            if field != "t3_thread_id":
+                self.assertEqual(
+                    reconcile("t1", "r1", task_id=changed["task_id"],
+                              phase=changed["phase"], commit=changed["commit"],
+                              worktree=changed["worktree"], home=self.home)["status"],
+                    "blocked", field,
+                )
+
+    def test_replay_without_full_context_is_blocked(self) -> None:
+        record_launch(
+            t3_thread_id="t1", receipt="r1", task_id="task-1", phase="review",
+            commit="a" * 40, worktree="/tmp/task-1", home=self.home,
+        )
+        self.assertEqual(reconcile("t1", "r1", home=self.home)["status"], "blocked")
+
+    def test_non_hex_commit_and_corrupt_receipts_blocked(self) -> None:
+        blocked = record_launch(
+            t3_thread_id="t1", receipt="r1", task_id="task-1", phase="review",
+            commit="z" * 40, worktree="/tmp/task-1", home=self.home,
+        )
+        self.assertEqual(blocked["status"], "blocked")
+        receipt_file = self.home / "reconcile" / "receipts.jsonl"
+        receipt_file.parent.mkdir(parents=True, exist_ok=True)
+        receipt_file.write_text("invalid json\\n", encoding="utf-8")
+        blocked = record_launch(
+            t3_thread_id="t1", receipt="r1", task_id="task-1", phase="review",
+            commit="a" * 40, worktree="/tmp/task-1", home=self.home,
+        )
+        self.assertEqual(blocked["status"], "blocked")
+        self.assertEqual(reconcile("t1", "r1", home=self.home)["status"], "blocked")
 
     def test_list_returns_all_launches(self) -> None:
         record_launch(

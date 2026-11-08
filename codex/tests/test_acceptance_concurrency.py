@@ -48,20 +48,26 @@ class ConcurrencyRecoveryTests(unittest.TestCase):
     def test_reconcile_after_record_replays(self):
         record_launch(
             t3_thread_id="t3:replay", receipt="r1", task_id="task-1",
-            phase="implement", commit="b" * 40, home=self.home,
+            phase="implement", commit="b" * 40, worktree="/tmp/replay", home=self.home,
         )
-        result = reconcile("t3:replay", "r1", home=self.home)
+        result = reconcile(
+            "t3:replay", "r1", task_id="task-1", phase="implement",
+            commit="b" * 40, worktree="/tmp/replay", home=self.home,
+        )
         self.assertEqual(result["status"], "replayed")
         self.assertEqual(result["task_id"], "task-1")
 
     def test_concurrent_reconcile_same_receipt_consistent(self):
         record_launch(
             t3_thread_id="t3:concurrent2", receipt="r2", task_id="task-2",
-            phase="review", commit="c" * 40, home=self.home,
+            phase="review", commit="c" * 40, worktree="/tmp/concurrent2", home=self.home,
         )
         results = []
         def rec():
-            results.append(reconcile("t3:concurrent2", "r2", home=self.home))
+            results.append(reconcile(
+                "t3:concurrent2", "r2", task_id="task-2", phase="review",
+                commit="c" * 40, worktree="/tmp/concurrent2", home=self.home,
+            ))
         threads = [threading.Thread(target=rec) for _ in range(10)]
         for t in threads:
             t.start()
