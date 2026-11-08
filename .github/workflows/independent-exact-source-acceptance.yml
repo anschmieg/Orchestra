@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
-      SOURCE_SHA: 52a5cc2dcfbe61e794d3ddc5fa6ea2cf48fc24e3
+      SOURCE_SHA: 72b08a5a67c31a61c68967c02b50fbd0a31e672e
       PYTHONDONTWRITEBYTECODE: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -40,6 +40,7 @@ jobs:
           printf 'COMMAND=python3 codex/scripts/validate_suite.py --full --comment-base HEAD^ EXIT=%s\n' "$rc"
           exit "$rc"
       - name: Adversarial acceptance suite (explicit count)
+        if: always()
         shell: bash
         run: |
           set +e
