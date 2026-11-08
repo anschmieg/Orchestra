@@ -15,6 +15,7 @@ from acceptance_keyring import (
     save_keyring,
 )
 from acceptance_policy import active_grants, boundary_check, require
+from acceptance_broker_ipc import probe_broker
 from acceptance_reconcile import list_launches, lookup, record_launch, reconcile
 
 HERE = Path(__file__).resolve().parent
@@ -136,6 +137,12 @@ def cmd_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_broker_status(args: argparse.Namespace) -> int:
+    result = probe_broker()
+    print(json.dumps(result, sort_keys=True))
+    return 0 if result["status"] == "connected_unverified" else 1
+
+
 def _blocked(reason: str) -> int:
     print(json.dumps({"status": "blocked", "reason": reason}))
     return 1
@@ -169,6 +176,7 @@ def build_parser() -> argparse.ArgumentParser:
     approve.set_defaults(func=cmd_approve)
 
     sub.add_parser("enroll").set_defaults(func=cmd_enroll)
+    sub.add_parser("broker-status").set_defaults(func=cmd_broker_status)
     sub.add_parser("list").set_defaults(func=cmd_list)
     return parser
 
