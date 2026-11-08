@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import select
 import secrets
 import socket
 import stat
@@ -52,12 +53,20 @@ def _read_response(connection: socket.socket) -> dict:
     return response
 
 
+def _peer_exited(pidfd: int) -> bool:
+    """A pidfd pins the kernel process identity despite PID reuse or reparenting."""
+    watcher = select.poll()
+    watcher.register(pidfd, select.POLLIN | select.POLLHUP | select.POLLERR)
+    return bool(watcher.poll(0))
+
+
 def _probe_at(path: Path) -> dict[str, str]:
     violation = _trusted_endpoint(path)
     if violation:
         return _blocked(violation)
     nonce = secrets.token_hex(16)
     request = {'protocol': PROTOCOL_VERSION, 'operation': 'probe', 'nonce': nonce}
+    peer_pidfd = None
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
             connection.settimeout(1.0)
@@ -65,10 +74,22 @@ def _probe_at(path: Path) -> dict[str, str]:
             pid, uid, gid = struct.unpack('3i', connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
             if uid != 0 or pid <= 0:
                 return _blocked('broker peer is not a root-owned process')
+            # SO_PEERCRED can outlive the peer. Pin the *exact* kernel process,
+            # not a reusable numeric PID, before trusting the reply at all.
+            if not hasattr(os, 'pidfd_open'):
+                return _blocked('broker process identity pinning unavailable')
+            peer_pidfd = os.pidfd_open(pid, 0)
+            if _peer_exited(peer_pidfd):
+                return _blocked('broker peer exited before handshake')
             connection.sendall(json.dumps(request, sort_keys=True).encode('utf-8') + b'\n')
             response = _read_response(connection)
-    except (OSError, ValueError, UnicodeError, struct.error) as error:
+            if _peer_exited(peer_pidfd):
+                return _blocked('broker peer exited during handshake')
+    except (OSError, ValueError, UnicodeError, struct.error, AttributeError) as error:
         return _blocked(f'broker IPC failure: {type(error).__name__}')
+    finally:
+        if peer_pidfd is not None:
+            os.close(peer_pidfd)
     if set(response) != {'protocol', 'operation', 'nonce', 'status', 'capabilities'}:
         return _blocked('broker response schema mismatch')
     if response['protocol'] != PROTOCOL_VERSION or response['operation'] != 'probe' or response['nonce'] != nonce:

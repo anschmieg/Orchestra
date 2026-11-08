@@ -105,7 +105,7 @@ class BrokerIpcAdversarialTests(unittest.TestCase):
             def connect(self, *_):
                 pass
             def getsockopt(self, *_):
-                return struct.pack('3i', 123, 0, 0)
+                return struct.pack('3i', os.getpid(), 0, 0)
             def sendall(self, message):
                 request = json.loads(message)
                 assert request == {'protocol': 1, 'operation': 'probe', 'nonce': 'test-nonce'}
