@@ -62,8 +62,6 @@ class RealPeerIdentityFencingTests(unittest.TestCase):
                 process.wait(timeout=5)
 
     def test_restarted_probe_rejects_stale_broker_after_sigkill_double_fork(self):
-        # The real unprivileged orphan remains alive; only the socket and
-        # SO_PEERCRED claim are simulated (no broker or cgroup installed).
         libc = ctypes.CDLL(None, use_errno=True)
         if libc.prctl(36, 1, 0, 0, 0) != 0:
             raise OSError(ctypes.get_errno(), 'PR_SET_CHILD_SUBREAPER')

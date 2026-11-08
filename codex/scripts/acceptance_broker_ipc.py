@@ -54,7 +54,6 @@ def _read_response(connection: socket.socket) -> dict:
 
 
 def _peer_exited(pidfd: int) -> bool:
-    """A pidfd pins the kernel process identity despite PID reuse or reparenting."""
     watcher = select.poll()
     watcher.register(pidfd, select.POLLIN | select.POLLHUP | select.POLLERR)
     return bool(watcher.poll(0))
@@ -74,8 +73,6 @@ def _probe_at(path: Path) -> dict[str, str]:
             pid, uid, gid = struct.unpack('3i', connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
             if uid != 0 or pid <= 0:
                 return _blocked('broker peer is not a root-owned process')
-            # SO_PEERCRED can outlive the peer. Pin the *exact* kernel process,
-            # not a reusable numeric PID, before trusting the reply at all.
             if not hasattr(os, 'pidfd_open'):
                 return _blocked('broker process identity pinning unavailable')
             peer_pidfd = os.pidfd_open(pid, 0)
