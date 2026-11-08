@@ -86,6 +86,26 @@ class BrokerIpcAdversarialTests(unittest.TestCase):
         self.assertEqual(result['status'], 'connected_unverified')
         self.assertNotIn('accepted', result.values())
 
+    def test_ambiguous_duplicate_nonce_generation_claim_fails_closed(self):
+        # A stale field followed by a valid field must not be silently overwritten.
+        raw = self._reply().replace(
+            b'"nonce": "test-nonce"',
+            b'"nonce": "stale-generation", "nonce": "test-nonce"', 1)
+        self.assertEqual(self._simulate(raw)['status'], 'blocked')
+
+    def test_ambiguous_duplicate_capabilities_claim_fails_closed(self):
+        # Last-wins JSON parsing can conceal a contradictory cgroup claim.
+        raw = self._reply().replace(
+            b'"capabilities": ',
+            b'"capabilities": ["separate-evaluator-uid"], "capabilities": ', 1)
+        self.assertEqual(self._simulate(raw)['status'], 'blocked')
+
+    def test_forged_boolean_or_float_protocol_version_fails_closed(self):
+        for value in (b'true', b'1.0'):
+            with self.subTest(value=value):
+                raw = self._reply().replace(b'"protocol": 1', b'"protocol": ' + value, 1)
+                self.assertEqual(self._simulate(raw)['status'], 'blocked')
+
     def _reply(self, *, nonce='test-nonce', status='ready', capabilities=None):
         if capabilities is None:
             capabilities = ['separate-evaluator-uid', 'cgroup-v2', 'recursive-kill', 'broker-sigkill-recovery']
