@@ -52,10 +52,10 @@ def _run(repo: Path, command: list[str]) -> tuple[int, str, str]:
 
 def cmd_start(args: argparse.Namespace) -> int:
     repo = args.repo.resolve()
-    grant = require("record_launch", home=args.home)
+    grant = require("record_launch")
     if grant["status"] != "ok":
         return _blocked(grant["reason"])
-    boundary = boundary_check(grant="record_launch", repo=repo, home=args.home)
+    boundary = boundary_check(grant="record_launch", repo=repo)
     if boundary["status"] == "blocked":
         return _blocked(boundary["reason"])
     result = record_launch(
@@ -89,7 +89,7 @@ def cmd_approve(args: argparse.Namespace) -> int:
         return _blocked("gate spec must come from verifier trust root, not implementer repo")
     if not args.spec.resolve().is_relative_to(VERIFIER_HOME.resolve()):
         return _blocked("gate spec must be in verifier trust root")
-    boundary = boundary_check(grant="verify_evidence", repo=repo, home=VERIFIER_HOME)
+    boundary = boundary_check(grant="verify_evidence", repo=repo)
     if boundary["status"] == "blocked":
         return _blocked(boundary["reason"])
     if not args.evidence.is_file():

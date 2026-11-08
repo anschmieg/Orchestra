@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
-import os
+from unittest.mock import patch
 from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
+
+import acceptance_cli
 
 CLI = Path(__file__).resolve().parent / ".." / "scripts" / "acceptance_cli.py"
 SCRIPTS = Path(__file__).resolve().parent / ".." / "scripts"
@@ -27,6 +30,44 @@ def _git(repo: Path, *args: str) -> str:
 class CLIAdversarialTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="orchestra-cli-"))
+
+
+    def test_start_records_receipt_with_valid_grant(self):
+        repo = self.tmp / "impl"
+        repo.mkdir()
+        env = {**os.environ, "ORCHESTRA_ACCEPTANCE_GRANT": "record_launch"}
+        argv = [
+            sys.executable, str(CLI), "--home", str(self.tmp / "state"), "start",
+            "--repo", str(repo), "--t3-thread-id", "thread-1",
+            "--receipt", "receipt-1", "--task-id", "task-1", "--phase", "implement",
+            "--commit", "a" * 40,
+        ]
+        first = subprocess.run(argv, capture_output=True, text=True, env=env)
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        self.assertEqual(json.loads(first.stdout)["status"], "recorded")
+        replay = subprocess.run(argv, capture_output=True, text=True, env=env)
+        self.assertEqual(replay.returncode, 1, replay.stdout + replay.stderr)
+        self.assertEqual(json.loads(replay.stdout)["status"], "duplicate")
+
+    def test_approve_uses_policy_api_without_home_keyword(self):
+        repo = self.tmp / "impl"
+        repo.mkdir()
+        verifier = self.tmp / "verifier"
+        verifier.mkdir()
+        spec = verifier / "gate.json"
+        spec.write_text("{}", encoding="utf-8")
+        evidence = self.tmp / "evidence.json"
+        evidence.write_text("{}", encoding="utf-8")
+        args = argparse.Namespace(
+            repo=repo, spec=spec, evidence=evidence, report=verifier / "report.json"
+        )
+        with (
+            patch.dict(os.environ, {"ORCHESTRA_ACCEPTANCE_GRANT": "verify_evidence"}),
+            patch.object(acceptance_cli, "VERIFIER_HOME", verifier),
+            patch.object(acceptance_cli, "_verifier_principal_check", return_value={"status": "ok"}),
+            patch.object(acceptance_cli, "_run", return_value=(0, '{"status":"accepted"}\n', "")),
+        ):
+            self.assertEqual(acceptance_cli.cmd_approve(args), 0)
 
     def test_attacker_spec_cannot_manufacture_accepted(self):
         impl_repo = self.tmp / "impl"
