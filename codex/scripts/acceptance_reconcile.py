@@ -44,7 +44,6 @@ def _no_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 
 def _read_validated_entries(lines: Any) -> list[dict[str, Any]]:
-    """Reject torn history; each durable JSONL receipt needs a final newline."""
     entries: list[dict[str, Any]] = []
     receipts: set[str] = set()
     required = {"t3_thread_id", "receipt", "task_id", "phase", "commit", "worktree", "recorded_at"}
