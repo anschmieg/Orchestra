@@ -24,6 +24,12 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: '3.11'
+      - name: Install test crypto dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check 'cryptography==46.0.3'
+          python3 -c 'from cryptography.hazmat.primitives.asymmetric import ed25519; print("CRYPTO_READY=1")'
       - name: Assert exact published source
         shell: bash
         run: |
