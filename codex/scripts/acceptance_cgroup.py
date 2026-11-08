@@ -1,0 +1,43 @@
+from __future__ import annotations
+
+import os
+import secrets
+import sys
+from pathlib import Path
+
+CGROUP_ROOT = Path('/sys/fs/cgroup')
+
+
+def probe_unprivileged_delegation() -> dict[str, str | int]:
+    if not sys.platform.startswith('linux'):
+        return {'status': 'blocked', 'reason': 'cgroup v2 requires Linux'}
+    if os.geteuid() == 0:
+        return {'status': 'blocked', 'reason': 'probe must run as an unprivileged UID'}
+    if not (CGROUP_ROOT / 'cgroup.controllers').is_file():
+        return {'status': 'blocked', 'reason': 'cgroup v2 controllers file is unavailable'}
+    path = CGROUP_ROOT / f'orchestra-delegation-probe-{os.getpid()}-{secrets.token_hex(8)}'
+    try:
+        path.mkdir(mode=0o700)
+    except OSError as error:
+        return {
+            'status': 'blocked',
+            'reason': f'no writable delegated cgroup: {error.strerror}',
+            'errno': error.errno or 0,
+        }
+    try:
+        available = (path / 'cgroup.procs').is_file() and (path / 'cgroup.kill').is_file()
+    finally:
+        try:
+            path.rmdir()
+        except OSError as error:
+            return {
+                'status': 'blocked',
+                'reason': f'cgroup probe cleanup failed: {error.strerror}',
+                'errno': error.errno or 0,
+            }
+    if not available:
+        return {'status': 'blocked', 'reason': 'delegated cgroup lacks cgroup.procs or cgroup.kill'}
+    return {
+        'status': 'delegated_unverified',
+        'reason': 'mkdir preflight succeeded; no process placement, fencing, or recursive-kill proof',
+    }
