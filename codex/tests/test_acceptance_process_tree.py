@@ -1,4 +1,3 @@
-"""Real Linux escaped-child regression; never treats a synthetic process as a broker."""
 from __future__ import annotations
 
 import ctypes
@@ -35,7 +34,6 @@ while True:
 
 
 def _alive(pid: int) -> bool:
-    """Exclude zombies: kill(pid, 0) also succeeds for unreaped zombies."""
     try:
         stat = Path(f'/proc/{pid}/stat').read_text(encoding='ascii')
     except FileNotFoundError:
@@ -44,9 +42,8 @@ def _alive(pid: int) -> bool:
 
 
 def _subreaper(on: bool) -> None:
-    # This operation affects only the test process, not the host's init/systemd.
     libc = ctypes.CDLL(None, use_errno=True)
-    if libc.prctl(36, int(on), 0, 0, 0) != 0:  # PR_SET_CHILD_SUBREAPER
+    if libc.prctl(36, int(on), 0, 0, 0) != 0:
         raise OSError(ctypes.get_errno(), 'PR_SET_CHILD_SUBREAPER')
 
 
@@ -54,7 +51,6 @@ def _subreaper(on: bool) -> None:
                      'requires Linux procfs and double-fork')
 class RealEscapedChildTests(unittest.TestCase):
     def test_supervisor_sigkill_double_fork_survives_but_restarted_gate_blocks(self) -> None:
-        """Physical fork/SIGKILL/cleanup; no root broker or mock containment claim."""
         _subreaper(True)
         broker = None
         escape_pid = None
@@ -81,8 +77,6 @@ class RealEscapedChildTests(unittest.TestCase):
                 self.assertTrue(_alive(escape_pid),
                                 'escaped child unexpectedly reaped by supervisor SIGKILL')
 
-                # Fresh evaluator process (restart) cannot infer PASS from the
-                # supervisor's disappearance, even while escaped code is alive.
                 root = str(Path(__file__).resolve().parents[1] / 'scripts')
                 runner = '''
 import json, sys
@@ -101,7 +95,6 @@ print(json.dumps(result))
                 self.assertEqual(result['status'], 'blocked')
                 self.assertIn('OS-principal isolation broker', result['reason'])
         finally:
-            # Never leave an escaped child running, including assertion failures.
             try:
                 if escape_pid is not None:
                     try:
@@ -109,7 +102,7 @@ print(json.dumps(result))
                     except ProcessLookupError:
                         pass
                     try:
-                        os.waitpid(escape_pid, 0)  # subreaper owns adopted grandchild
+                        os.waitpid(escape_pid, 0)
                     except ChildProcessError:
                         pass
                 if broker is not None:
