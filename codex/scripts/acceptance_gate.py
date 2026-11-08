@@ -2,9 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +22,10 @@ from acceptance_evidence import (
 
 HERE = Path(__file__).resolve().parent
 GATE_SPEC_NAME = "gate.json"
-CHECK_TIMEOUT = 300
+UNISOLATED_EVALUATOR_REASON = (
+    "untrusted evaluator execution disabled: no installed, verified "
+    "OS-principal isolation broker"
+)
 
 
 def gate_spec_path(repo: Path) -> Path:
@@ -71,80 +71,29 @@ def validate_gate_spec(spec: dict[str, Any]) -> str | None:
     return None
 
 
-def run_check(repo: Path, check: dict[str, Any], timeout: int = CHECK_TIMEOUT) -> dict[str, Any]:
-    name = check["name"]
-    command = list(check["command"])
-    try:
-        result = subprocess.run(
-            command, cwd=str(repo), check=False, capture_output=True, text=True,
-            timeout=timeout,
-        )
-    except subprocess.TimeoutExpired:
-        return {"name": name, "status": "blocked", "reason": "check timed out"}
-    except OSError as error:
-        return {"name": name, "status": "blocked", "reason": f"could not start: {error}"}
-    if result.returncode == 0:
-        return {"name": name, "status": "passed", "exit": 0}
-    detail = (result.stderr or result.stdout or "no output").strip()[:400]
+def run_check(repo: Path, check: dict[str, Any], timeout: int = 300) -> dict[str, Any]:
+    """Never invoke arbitrary evaluator commands in the verifier process."""
     return {
-        "name": name,
-        "status": "failed",
-        "exit": result.returncode,
-        "detail": detail,
+        "name": check["name"],
+        "status": "blocked",
+        "reason": UNISOLATED_EVALUATOR_REASON,
     }
 
 
-def _immutable_checkout(repo: Path, commit: str) -> Path:
-    import tempfile
-    checkout = Path(tempfile.mkdtemp(prefix="orchestra-verify-"))
-    result = subprocess.run(
-        ["git", "-C", str(repo), "worktree", "add", "--detach", str(checkout), commit],
-        capture_output=True, text=True, check=False,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"could not create immutable checkout: {result.stderr.strip()}")
-    subprocess.run(["chmod", "-R", "a-w", str(checkout)], check=False)
-    return checkout
-
-
-def _cleanup_checkout(checkout: Path) -> None:
-    import shutil
-    subprocess.run(["chmod", "-R", "u+w", str(checkout)], check=False)
-    subprocess.run(["git", "worktree", "remove", "--force", str(checkout)], check=False, capture_output=True)
-    shutil.rmtree(checkout, ignore_errors=True)
-
-
 def run_gate(repo: Path, spec: dict[str, Any], commit: str) -> dict[str, Any]:
-    repo = repo.resolve()
-    checkout = _immutable_checkout(repo, commit)
-    try:
-        results = [run_check(checkout, check) for check in spec["checks"]]
-        failed = [r for r in results if r["status"] == "failed"]
-        blocked = [r for r in results if r["status"] == "blocked"]
-        if blocked:
-            return {
-                "status": "blocked",
-                "gate_id": spec["gate_id"],
-                "contract": spec["contract"],
-                "checks": results,
-                "reason": "a check could not run",
-            }
-        if failed:
-            return {
-                "status": "rejected",
-                "gate_id": spec["gate_id"],
-                "contract": spec["contract"],
-                "checks": results,
-                "reason": "at least one check failed",
-            }
-        return {
-            "status": "accepted",
-            "gate_id": spec["gate_id"],
-            "contract": spec["contract"],
-            "checks": results,
-        }
-    finally:
-        _cleanup_checkout(checkout)
+    """No evaluator may run until a privileged isolation broker is implemented.
+
+    An environment variable, chmod, unprivileged container, or read-only
+    checkout cannot establish the required separate OS principal. There is
+    intentionally no configurable bypass or same-UID fallback here.
+    """
+    return {
+        "status": "blocked",
+        "gate_id": spec["gate_id"],
+        "contract": spec["contract"],
+        "checks": [run_check(repo, check) for check in spec["checks"]],
+        "reason": UNISOLATED_EVALUATOR_REASON,
+    }
 
 
 def evaluate(

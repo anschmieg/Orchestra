@@ -96,6 +96,33 @@ def _locked_check_and_write(path: Path, t3_thread_id: str, receipt: str, entry: 
             fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 
+def _invalid_identity(
+    t3_thread_id: str, receipt: str, task_id: str, phase: str,
+    commit: str, worktree: str | None,
+) -> str | None:
+    for field, value in (
+        ("t3_thread_id", t3_thread_id), ("receipt", receipt),
+        ("task_id", task_id), ("phase", phase),
+    ):
+        if (
+            not isinstance(value, str) or not value or value != value.strip()
+            or any(ord(char) < 32 or ord(char) == 127 for char in value)
+        ):
+            return f"{field} must be a nonempty canonical identifier"
+    if not isinstance(commit, str) or len(commit) != 40 or any(
+        digit not in "0123456789abcdefABCDEF" for digit in commit
+    ):
+        return "commit must be a full hexadecimal SHA"
+    if (
+        not isinstance(worktree, str) or not worktree or worktree != worktree.strip()
+        or any(ord(char) < 32 or ord(char) == 127 for char in worktree)
+        or not Path(worktree).is_absolute() or worktree == "/"
+        or os.path.normpath(worktree) != worktree
+    ):
+        return "worktree must be a canonical absolute non-root path"
+    return None
+
+
 def record_launch(
     *,
     t3_thread_id: str,
@@ -106,17 +133,9 @@ def record_launch(
     worktree: str | None = None,
     home: Path | None = None,
 ) -> dict[str, Any]:
-    if not t3_thread_id or not isinstance(t3_thread_id, str):
-        return {"status": "blocked", "reason": "t3_thread_id is required"}
-    if not receipt or not isinstance(receipt, str):
-        return {"status": "blocked", "reason": "receipt is required"}
-    if not isinstance(commit, str) or len(commit) != 40 or any(
-        digit not in "0123456789abcdefABCDEF" for digit in commit
-    ):
-        return {"status": "blocked", "reason": "commit must be a full hexadecimal SHA"}
-    for field, value in (("task_id", task_id), ("phase", phase)):
-        if not isinstance(value, str) or not value.strip():
-            return {"status": "blocked", "reason": f"{field} is required"}
+    error = _invalid_identity(t3_thread_id, receipt, task_id, phase, commit, worktree)
+    if error:
+        return {"status": "blocked", "reason": error}
     _ensure(home)
     entry = {
         "t3_thread_id": t3_thread_id,
@@ -160,12 +179,10 @@ def reconcile(
     if found["status"] == "blocked":
         return found
     if found["status"] == "found":
+        error = _invalid_identity(t3_thread_id, receipt, task_id, phase, commit, worktree)
+        if error:
+            return {"status": "blocked", "reason": error}
         expected = {"task_id": task_id, "phase": phase, "commit": commit, "worktree": worktree}
-        if any(not isinstance(value, str) or not value for value in expected.values()):
-            return {
-                "status": "blocked",
-                "reason": "replay requires task_id, phase, commit and worktree",
-            }
         if any(found.get(field) != value for field, value in expected.items()):
             return {"status": "blocked", "reason": "receipt context mismatch"}
         replayed = {key: value for key, value in found.items() if key != "status"}
