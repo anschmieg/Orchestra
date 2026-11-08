@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
-      SOURCE_SHA: 72b08a5a67c31a61c68967c02b50fbd0a31e672e
+      SOURCE_SHA: 222f9d573a65d4aa9307bab8eca6223c2a3c76cd
       PYTHONDONTWRITEBYTECODE: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
