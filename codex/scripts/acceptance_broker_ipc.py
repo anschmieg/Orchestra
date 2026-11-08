@@ -36,6 +36,15 @@ def _trusted_endpoint(path: Path) -> str | None:
     return None
 
 
+def _unique_json_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError('duplicate broker response JSON field')
+        result[key] = value
+    return result
+
+
 def _read_response(connection: socket.socket) -> dict:
     data = b''
     while b'\n' not in data:
@@ -47,7 +56,7 @@ def _read_response(connection: socket.socket) -> dict:
             raise ValueError('broker response exceeds size limit')
     if data.count(b'\n') != 1 or not data.endswith(b'\n'):
         raise ValueError('broker returned multiple or trailing messages')
-    response = json.loads(data.decode('utf-8'))
+    response = json.loads(data.decode('utf-8'), object_pairs_hook=_unique_json_keys)
     if not isinstance(response, dict):
         raise ValueError('broker response must be an object')
     return response
@@ -89,7 +98,7 @@ def _probe_at(path: Path) -> dict[str, str]:
             os.close(peer_pidfd)
     if set(response) != {'protocol', 'operation', 'nonce', 'status', 'capabilities'}:
         return _blocked('broker response schema mismatch')
-    if response['protocol'] != PROTOCOL_VERSION or response['operation'] != 'probe' or response['nonce'] != nonce:
+    if type(response['protocol']) is not int or response['protocol'] != PROTOCOL_VERSION or response['operation'] != 'probe' or response['nonce'] != nonce:
         return _blocked('broker response is stale or from the wrong protocol')
     capabilities = response['capabilities']
     if response['status'] != 'ready' or not isinstance(capabilities, list) or len(capabilities) != len(REQUIRED_CAPABILITIES) or not all(type(capability) is str for capability in capabilities) or set(capabilities) != REQUIRED_CAPABILITIES:
