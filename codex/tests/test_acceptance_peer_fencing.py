@@ -15,7 +15,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from acceptance_broker_ipc import BROKER_SOCKET, _probe_at, REQUIRED_CAPABILITIES
+from acceptance_broker_ipc import BROKER_SOCKET, _probe_at, REQUIRED_CAPABILITIES, SO_PEERPIDFD
 
 
 @unittest.skipUnless(sys.platform.startswith('linux') and hasattr(os, 'pidfd_open'),
@@ -41,7 +41,9 @@ class RealPeerIdentityFencingTests(unittest.TestCase):
                 def __exit__(self, *args): pass
                 def settimeout(self, *_): pass
                 def connect(self, *_): pass
-                def getsockopt(self, *_): return struct.pack('3i', broker.pid, 0, 0)
+                def getsockopt(self, level, option, length):
+                    if option == SO_PEERPIDFD: return struct.pack('i', os.pidfd_open(broker.pid, 0))
+                    return struct.pack('3i', broker.pid, 0, 0)
                 def sendall(self, request):
                     self.nonce = json.loads(request)['nonce']
                 def recv(self, _):
@@ -104,7 +106,7 @@ while True: time.sleep(60)
                 self.assertTrue(Path(f'/proc/{escaped_pid}').exists(),
                                 'orphan unexpectedly vanished after supervisor SIGKILL')
                 restarted = """
-import json,struct,sys
+import json,struct,sys,os
 from unittest.mock import patch
 from pathlib import Path
 sys.path.insert(0,sys.argv[1])
@@ -114,7 +116,9 @@ class StalePeer:
     def __exit__(self, *a): pass
     def settimeout(self, *a): pass
     def connect(self, *a): pass
-    def getsockopt(self, *a): return struct.pack('3i', int(sys.argv[2]), 0, 0)
+    def getsockopt(self, level, option, length):
+        if option == broker.SO_PEERPIDFD: return struct.pack('i', os.pidfd_open(int(sys.argv[2]), 0))
+        return struct.pack('3i', int(sys.argv[2]), 0, 0)
     def sendall(self, request): self.nonce=json.loads(request)['nonce']
     def recv(self, _):
         return (json.dumps({'protocol':1,'operation':'probe','nonce':self.nonce,
@@ -149,7 +153,9 @@ with patch('acceptance_broker_ipc._trusted_endpoint',return_value=None), \
             def __exit__(self, *args): pass
             def settimeout(self, *_): pass
             def connect(self, *_): pass
-            def getsockopt(self, *_): return struct.pack('3i', proc.pid, 0, 0)
+            def getsockopt(self, level, option, length):
+                if option == SO_PEERPIDFD: return struct.pack('i', os.pidfd_open(proc.pid, 0))
+                return struct.pack('3i', proc.pid, 0, 0)
             def sendall(self, request): self.nonce = json.loads(request)['nonce']
             def recv(self, _):
                 return (json.dumps({'protocol': 1, 'operation': 'probe', 'nonce': self.nonce,
