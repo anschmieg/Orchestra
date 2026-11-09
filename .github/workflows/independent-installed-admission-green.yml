@@ -1,0 +1,55 @@
+name: Independent exact-source installed verifier admission and broad acceptance
+on:
+  push:
+    branches: [verification/orchestra-20261109-installed-admission-green]
+permissions:
+  contents: read
+jobs:
+  pinned-source-acceptance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      SOURCE_SHA: cf7d20f9c3fb0c16b6649b5d2f169583728a33b4
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONPATH: codex/scripts
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: cf7d20f9c3fb0c16b6649b5d2f169583728a33b4
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.11'
+      - name: Install pinned test crypto dependency
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check 'cryptography==46.0.3'
+      - name: Assert exact feature source pin
+        run: |
+          set -euo pipefail
+          echo "EXACT_SOURCE=$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - name: Targeted installed admission and surrounding verifier tests
+        run: |
+          set -euo pipefail
+          for testfile in test_acceptance_installed_admission.py test_acceptance_verifier_trust_boundary.py test_acceptance_verifier_process_code.py test_acceptance_cli_adversarial.py test_acceptance_broker_claims.py test_acceptance_gate.py; do
+            python3 -m unittest discover -s codex/tests -p "$testfile" -v
+            echo "TARGETED_COMMAND=python3 -m unittest discover -s codex/tests -p $testfile -v EXIT=0"
+          done
+      - name: Official full 13 conformance
+        if: always()
+        run: |
+          set +e
+          python3 codex/scripts/validate_suite.py --full --comment-base 85c65b4f05b58a6936d52cfcbad3446730125834
+          rc=$?
+          echo "OFFICIAL_COMMAND=python3 codex/scripts/validate_suite.py --full --comment-base 85c65b4f05b58a6936d52cfcbad3446730125834 EXIT=$rc"
+          exit "$rc"
+      - name: All adversarial acceptance tests on exact source
+        if: always()
+        run: |
+          set +e
+          python3 -m unittest discover -s codex/tests -p 'test_acceptance_*.py' -v
+          rc=$?
+          echo "BROAD_COMMAND=python3 -m unittest discover -s codex/tests -p 'test_acceptance_*.py' -v EXIT=$rc"
+          exit "$rc"
