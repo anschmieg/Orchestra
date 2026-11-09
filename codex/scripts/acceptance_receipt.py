@@ -1,8 +1,3 @@
-"""One-use signed broker receipt *screening*, not installed-protected admission.
-
-No public-key argument or rootless test can authenticate the privileged launcher.
-A successful check deliberately returns verified_uninstalled, never accepted.
-"""
 from __future__ import annotations
 
 import fcntl
@@ -36,7 +31,6 @@ def _blocked(reason: str) -> dict[str, str]:
 
 
 def _executable_identity(path: str) -> list[int]:
-    """Stat the *open executable*, not a caller-supplied pathname snapshot."""
     if not hasattr(os, "O_PATH"):
         raise OSError("kernel executable descriptor pinning unavailable")
     descriptor = os.open(path, os.O_PATH | os.O_CLOEXEC)
@@ -50,7 +44,6 @@ def _executable_identity(path: str) -> list[int]:
 
 
 def observe_evaluator(pid: int) -> dict[str, Any]:
-    """Observe real/effective UID and executable of a live, PIDFD-pinned process."""
     if type(pid) is not int or pid <= 1 or not hasattr(os, "pidfd_open"):
         raise ValueError("invalid evaluator PID or unavailable kernel pidfd")
     descriptor = os.pidfd_open(pid, 0)
@@ -81,11 +74,6 @@ def observe_evaluator(pid: int) -> dict[str, Any]:
 
 
 def _consume_once(ledger_dir: Path, nonce: str) -> dict[str, str]:
-    """Durably consume a nonce before returning. Survives SIGKILL and restarts.
-
-    The caller must ensure the enclosing installation is operator-controlled.
-    This helper checks ownership and the direct inode, but is not a trust anchor.
-    """
     if type(nonce) is not str or not HEX64.fullmatch(nonce):
         return _blocked("invalid signed admission nonce")
     directory_fd = None
@@ -154,11 +142,6 @@ def verify_one_use_receipt(
     broker_verify_key: Any,
     ledger_dir: Path,
 ) -> dict[str, str]:
-    """Validate signed provenance, kernel identities and durable one-shot use.
-
-    A simulated broker may pass cryptographic unit tests, but cannot grant GO:
-    operator-pinned broker keys, launcher, execution and cgroup proof are absent.
-    """
     try:
         if type(challenge) is not dict or set(challenge) != CHALLENGE_FIELDS:
             return _blocked("trusted challenge schema mismatch")

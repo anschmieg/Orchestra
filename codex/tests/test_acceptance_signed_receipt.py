@@ -102,8 +102,13 @@ class SignedAdmissionReceiptTests(unittest.TestCase):
         self.assertEqual(self.verify(signed)["status"], "blocked")
 
     def test_late_broker_response_is_rejected(self):
-        expired = self.receipt(issued_monotonic_ns=1, expires_monotonic_ns=2)
-        self.assertEqual(self.verify(expired)["status"], "blocked")
+        issued = time.monotonic_ns() - 2_000_000_000
+        expires = issued + 1_000_000_000
+        challenge = dict(self.challenge, issued_monotonic_ns=issued, expires_monotonic_ns=expires)
+        expired = self.receipt(issued_monotonic_ns=issued, expires_monotonic_ns=expires)
+        result = self.verify(expired, challenge)
+        self.assertEqual(result["status"], "blocked", result)
+        self.assertIn("expired", result["reason"])
 
     def test_substituted_kernel_evaluator_uid_and_process_identity_rejected(self):
         signed = self.receipt()
