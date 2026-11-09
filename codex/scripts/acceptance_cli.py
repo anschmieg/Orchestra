@@ -70,9 +70,18 @@ def _verifier_principal_check() -> dict[str, Any]:
 
 
 def _run(repo: Path, command: list[str]) -> tuple[int, str, str]:
+    # The evaluator's process must not inherit implementer loader settings or cwd.
+    # The parent CLI itself must be invoked from a protected install with -I.
+    env = {
+        "PATH": os.defpath,
+        "HOME": str(VERIFIER_HOME),
+        "LANG": "C",
+        "LC_ALL": "C",
+    }
     process = subprocess.run(
-        [sys.executable, str(HERE / command[0]), *command[1:]],
-        cwd=str(repo),
+        [sys.executable, "-I", str(HERE / command[0]), *command[1:]],
+        cwd=str(VERIFIER_HOME),
+        env=env,
         capture_output=True, text=True, check=False,
     )
     return process.returncode, process.stdout, process.stderr
