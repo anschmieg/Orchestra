@@ -26,6 +26,72 @@ VERIFIER_HOME = Path("/etc/orchestra-acceptance")
 VERIFIER_UID = 999
 
 
+
+def _protected_path(path: Path, *, label: str, owners: tuple[int, ...]) -> str | None:
+    """Best-effort negative screening, not atomic executable provenance.
+
+    Each lexical component is lstat-ed rather than resolved: a symlink in
+    any ancestor or the leaf is rejected. The broker must independently pin
+    immutable executable descriptors before exec; this check cannot do that.
+    """
+    if not path.is_absolute() or ".." in path.parts:
+        return f"{label} must use an absolute unambiguous installation path"
+    current = Path("/")
+    components = path.parts[1:]
+    for index, component in enumerate(("", *components)):
+        if index:
+            current = current / component
+        is_leaf = index == len(components)
+        try:
+            entry = os.lstat(current)
+        except OSError:
+            return f"{label} installation path not found: {current}"
+        if entry.st_uid not in owners or entry.st_mode & 0o022:
+            segment = "leaf" if is_leaf else "ancestor"
+            return f"{label} {segment} is not protected: {current}"
+        if is_leaf:
+            if not stat.S_ISREG(entry.st_mode) and not stat.S_ISDIR(entry.st_mode):
+                return f"{label} leaf must not be a symlink or special file: {current}"
+        elif not stat.S_ISDIR(entry.st_mode):
+            return f"{label} ancestor must be a real directory: {current}"
+    return None
+
+
+def _installed_verifier_admission_check() -> dict[str, str]:
+    """Reject unsafe installs; broker proof is unavailable so never grant GO.
+
+    Python startup precedes this check. It cannot authenticate its own
+    entrypoint, interpreter, imports, dynamic loader or pre-init execution.
+    """
+    if not (sys.flags.isolated and sys.flags.no_site):
+        return {"status": "blocked", "reason": "verifier startup requires -I -S before imports"}
+    if sys.prefix != sys.base_prefix:
+        return {"status": "blocked", "reason": "virtual environment and writable .pth provenance not admitted"}
+    code_files = (
+        "acceptance_cli.py", "acceptance_gate.py", "acceptance_broker_ipc.py",
+        "acceptance_keyring.py", "acceptance_policy.py",
+        "acceptance_reconcile.py", "acceptance_evidence.py",
+    )
+    paths = [("interpreter", Path(sys.executable))]
+    paths.extend((f"verifier code {name}", HERE / name) for name in code_files)
+    for label, path in paths:
+        violation = _protected_path(path, label=label, owners=(0,))
+        if violation:
+            return {"status": "blocked", "reason": violation}
+    broker = probe_broker()
+    if not isinstance(broker, dict):
+        return {"status": "blocked", "reason": "broker attestation missing: malformed response"}
+    if broker.get("verifier_uid") not in (None, VERIFIER_UID):
+        return {"status": "blocked", "reason": "broker verifier identity mismatched"}
+    if broker.get("evaluator_uid") in (0, VERIFIER_UID):
+        return {"status": "blocked", "reason": "broker evaluator identity is not independent"}
+    # A nonce-bound transport probe is not an attestation of installed broker
+    # executable, evaluator UID, cgroup generation or anti-replay binding.
+    # No accepted state exists until the operator deploys and validates that
+    # separate privileged protocol; never trust a broker self-reported "ready".
+    return {"status": "blocked", "reason": "broker attestation missing: installed execution identity unverified"}
+
+
 def _verifier_principal_check() -> dict[str, Any]:
     if os.getuid() != VERIFIER_UID or os.geteuid() != VERIFIER_UID:
         return {
@@ -66,7 +132,15 @@ def _verifier_principal_check() -> dict[str, Any]:
         or keyring_stat.st_mode & 0o022
     ):
         return {"status": "blocked", "reason": "verifier keyring is not a protected regular file"}
-    return {"status": "ok"}
+    for label, path, owners in (
+        ("verifier trust root", home, (0, VERIFIER_UID)),
+        ("verifier grants", grants_file, (0, VERIFIER_UID)),
+        ("verifier keyring", keyring_file, (0, VERIFIER_UID)),
+    ):
+        violation = _protected_path(path, label=label, owners=owners)
+        if violation:
+            return {"status": "blocked", "reason": violation}
+    return _installed_verifier_admission_check()
 
 
 def _run(repo: Path, command: list[str]) -> tuple[int, str, str]:

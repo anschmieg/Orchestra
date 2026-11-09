@@ -93,3 +93,23 @@ inspection needs no grant. The default home is `~/.orchestra-acceptance`.
 
 `python3 codex/scripts/validate_suite.py --full` runs the acceptance
 conformance check alongside the existing suite.
+
+## Installed verifier admission (rootless negative screening)
+
+`approve` now denies paths with symlinked, non-root-owned or group/world-writable
+interpreter, verifier Python code, or ancestor components, and checks the entire
+verifier-home ancestry as well as the leaf grants and keyring. It rejects
+non-isolated startup, virtual environments and `.pth`-enabled site startup.
+The broker's existing nonce/PIDFD transport probe is **not** identity or
+containment attestation, so even a claimed `ready` cannot grant `accepted`.
+
+These `lstat` checks are **diagnostic rejection only**. They run after Python
+startup, so cannot stop malicious `sitecustomize`, a replaced interpreter or
+entrypoint, preloaded modules, or mutable dynamic libraries. Their path/inode
+identity can change between checking and executing (TOCTOU), even with clean
+UID/mode metadata. A privileged operator-installed launcher must bind and
+verify descriptors and executable/dependency digests before `execve`, isolate
+verifier/evaluator identities, supply protected signing keys and use a
+challenge-bound broker attestation tied to each accepted result and cgroup
+generation. Until that is deployed and demonstrated, production admission is
+**BLOCKED_SAFE / NO-GO**, irrespective of passing rootless tests.

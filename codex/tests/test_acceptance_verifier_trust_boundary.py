@@ -39,7 +39,9 @@ class VerifierTrustBoundaryTests(unittest.TestCase):
             self.assertIn(part, result["reason"])
 
     def test_control_fixture_is_not_itself_a_proof_of_isolation(self):
-        self.assertEqual(acceptance_cli._verifier_principal_check()["status"], "ok")
+        result = acceptance_cli._verifier_principal_check()
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn("ancestor", result["reason"])
 
     def test_group_writable_trust_root_is_rejected(self):
         self.home.chmod(0o770)
