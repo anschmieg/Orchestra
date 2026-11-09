@@ -119,11 +119,6 @@ def _probe_at(path: Path) -> dict[str, str]:
 
 
 
-# This challenge protocol binds one wire exchange to an explicit task/context,
-# a short monotonic deadline, the current kernel UID and a held executable FD.
-# It is an unprivileged NEGATIVE screen, not production attestation: a root
-# broker must independently measure both verifier and evaluator OS principals,
-# its installed executable and cgroup generation before any authoritative GO.
 CHALLENGE_TTL_NS = 5_000_000_000
 
 
@@ -135,7 +130,6 @@ def _executable_descriptor_identity(fd: int) -> list[int]:
 
 
 def _attest_at(path: Path, *, task_id: str, context_id: str) -> dict[str, str]:
-    """Probe a challenge-bound broker claim; NEVER return production admission."""
     for label, value in (('task', task_id), ('context', context_id)):
         if type(value) is not str or not (0 < len(value) <= 256) or any(ord(c) < 32 for c in value):
             return _blocked(f'invalid broker challenge {label} identifier')
@@ -209,9 +203,6 @@ def _attest_at(path: Path, *, task_id: str, context_id: str) -> dict[str, str]:
             or not all(type(capability) is str for capability in capabilities)
             or set(capabilities) != REQUIRED_CAPABILITIES):
         return _blocked('broker attestation capabilities or status mismatch')
-    # This is intentionally NOT an "attested" or "accepted" status: broker
-    # signatures, kernel-observed evaluator identity, cgroup process lineage
-    # and protected installed launcher still need separate operator proof.
     return {'status': 'connected_unverified'}
 
 
