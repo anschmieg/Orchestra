@@ -29,4 +29,4 @@ jobs:
       - name: Broad acceptance regression tests
         run: python3 -m unittest discover -s codex/tests -p 'test_acceptance_*.py' -v
       - name: Official full conformance
-        run: python3 codex/scripts/validate_suite.py --full --comment-base ci
+        run: python3 codex/scripts/validate_suite.py --full --comment-base 32b7d8856090cf9b34be93921a7c82ce5845f6c3
