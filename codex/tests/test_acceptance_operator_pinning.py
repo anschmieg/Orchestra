@@ -38,6 +38,7 @@ class OperatorPinnedInstalledAdmission(unittest.TestCase):
              patch.object(cli, "_protected_path", return_value=None), \
              patch.object(cli, "_load_operator_installation", return_value={"status": "ok", "installation": self.install}), \
              patch.object(cli, "_endpoint_identity", return_value=observed_endpoint), \
+             patch.object(cli, "_installed_boundary_snapshot", return_value={"status": "ok", "identity": {"fixed": True}}), \
              patch.object(cli, "_protected_receipt_at", return_value=receipt) as challenge:
             result = cli._installed_verifier_admission_check()
         return result, challenge

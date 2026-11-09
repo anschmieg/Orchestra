@@ -180,6 +180,56 @@ def _load_operator_installation() -> dict[str, Any]:
     return {"status": "ok", "installation": manifest}
 
 
+def _installed_boundary_snapshot(manifest: dict[str, Any]) -> dict[str, Any]:
+    """Recheck protected path identities and kernel process/cgroup state around IPC.
+
+    Directory metadata deliberately excludes timestamps/size: append-only replay
+    bookkeeping may legitimately create ledger entries during receipt consumption.
+    File metadata and inode identity must remain stable for the entire operation.
+    """
+    tracked = [
+        ("operator manifest", BROKER_INSTALLATION, "broker installation manifest", (0,), False),
+        ("socket parent", BROKER_SOCKET.parent, "verifier trust root", (0,), True),
+        ("replay ledger", BROKER_LEDGER, "verifier trust root", (0, VERIFIER_UID), True),
+        ("verifier trust root", VERIFIER_HOME, "verifier trust root", (0, VERIFIER_UID), True),
+        ("verifier grants", VERIFIER_HOME / "grants.json", "verifier grants", (0, VERIFIER_UID), False),
+        ("verifier keyring", VERIFIER_HOME / "keyring.json", "verifier keyring", (0, VERIFIER_UID), False),
+        ("verifier interpreter", Path(sys.executable), "interpreter", (0,), False),
+    ]
+    for name in (
+        "acceptance_cli.py", "acceptance_gate.py", "acceptance_broker_ipc.py",
+        "acceptance_keyring.py", "acceptance_policy.py", "acceptance_reconcile.py",
+        "acceptance_evidence.py", "acceptance_receipt.py",
+    ):
+        tracked.append((f"verifier code {name}", HERE / name, f"verifier code {name}", (0,), False))
+    identities = {}
+    try:
+        for name, path, label, owners, directory in tracked:
+            violation = _protected_path(path, label=label, owners=owners)
+            if violation:
+                return {"status": "blocked", "reason": f"operator installation changed: {violation}"}
+            item = os.lstat(path)
+            identity = (item.st_dev, item.st_ino, item.st_uid, item.st_gid,
+                        item.st_mode, item.st_nlink)
+            if not directory:
+                identity += (item.st_size, item.st_ctime_ns, item.st_mtime_ns)
+            identities[name] = identity
+        endpoint = _endpoint_identity(BROKER_SOCKET)
+        if tuple(endpoint) != tuple(manifest["socket_identity"]):
+            return {"status": "blocked", "reason": "operator installation changed: broker socket identity"}
+        identities["broker socket"] = tuple(endpoint)
+        identities["kernel process"] = (
+            os.getpid(), os.getppid(), os.getuid(), os.geteuid(), os.getgid(), os.getegid())
+        cgroup = Path("/proc/self/cgroup").read_bytes()
+        if not cgroup:
+            return {"status": "blocked", "reason": "operator installation cgroup identity unavailable"}
+        identities["kernel cgroup"] = cgroup
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as error:
+        return {"status": "blocked", "reason":
+                f"operator installation identity unavailable: {type(error).__name__}"}
+    return {"status": "ok", "identity": identities}
+
+
 def _installed_verifier_admission_check() -> dict[str, str]:
     if not (sys.flags.isolated and sys.flags.no_site):
         return {"status": "blocked", "reason": "verifier startup requires -I -S before imports"}
@@ -217,6 +267,9 @@ def _installed_verifier_admission_check() -> dict[str, str]:
         broker_key = load_verify_key(manifest["broker_public_key"])
     except (OSError, ValueError, TypeError):
         return {"status": "blocked", "reason": "operator broker verification key unavailable"}
+    initial_boundary = _installed_boundary_snapshot(manifest)
+    if initial_boundary["status"] != "ok":
+        return {"status": "blocked", "reason": initial_boundary["reason"]}
     receipt = _protected_receipt_at(
         BROKER_SOCKET,
         task_id=manifest["task_id"],
@@ -228,6 +281,19 @@ def _installed_verifier_admission_check() -> dict[str, str]:
         expected_endpoint_identity=manifest["socket_identity"],
         expected_evaluator_uid=manifest["evaluator_uid"],
     )
+    # Re-read protected installation and compare its content and inode identities
+    # even when the broker refused; a concurrent rotation must not be hidden by IPC.
+    refreshed_installation = _load_operator_installation()
+    if (refreshed_installation.get("status") != "ok"
+            or refreshed_installation.get("installation") != manifest):
+        return {"status": "blocked",
+                "reason": "operator installation changed during protected broker IPC"}
+    final_boundary = _installed_boundary_snapshot(manifest)
+    if (final_boundary["status"] != "ok"
+            or final_boundary["identity"] != initial_boundary["identity"]):
+        return {"status": "blocked",
+                "reason": "operator installation identity changed during protected broker IPC: "
+                + final_boundary.get("reason", "protected inode, UID, cgroup or replay ledger differs")}
     if receipt.get("status") != "verified_uninstalled":
         return {"status": "blocked", "reason":
                 "protected installed broker receipt rejected: " + receipt.get("reason", "unverified")}

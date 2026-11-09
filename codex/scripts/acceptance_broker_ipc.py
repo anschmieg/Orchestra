@@ -333,6 +333,17 @@ def _protected_receipt_at(
                 return result
             if (_peer_exited(peer_pidfd) or _endpoint_identity(path) != endpoint):
                 return _blocked('protected broker disconnected before response consumption ended')
+            if broker_executable_fd is not None:
+                refreshed = os.open(
+                    f'/proc/{peer_pid}/exe', os.O_PATH | os.O_CLOEXEC)
+                try:
+                    if (_executable_descriptor_identity(refreshed)
+                            != expected_broker_executable):
+                        return _blocked('operator-pinned broker executable changed after receipt')
+                finally:
+                    os.close(refreshed)
+            if (os.getuid(), os.geteuid()) != (verifier_uid, verifier_euid):
+                return _blocked('verifier kernel UID changed after receipt')
             return {'status': 'verified_uninstalled'}
     except (OSError, ValueError, TypeError, UnicodeError, struct.error,
             AttributeError, OverflowError) as error:
