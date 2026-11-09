@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -26,19 +27,50 @@ VERIFIER_UID = 999
 
 
 def _verifier_principal_check() -> dict[str, Any]:
-    if os.getuid() != VERIFIER_UID:
-        return {"status": "blocked", "reason": f"approve requires verifier UID {VERIFIER_UID}, current UID {os.getuid()}"}
+    """Check the installed verifier identity and protected trust-root metadata.
+
+    This is a necessary preflight, not evidence that a privileged evaluator
+    broker or independent verifier keys have been installed.
+    """
+    if os.getuid() != VERIFIER_UID or os.geteuid() != VERIFIER_UID:
+        return {
+            "status": "blocked",
+            "reason": f"approve requires real and effective verifier UID {VERIFIER_UID}",
+        }
+
     home = VERIFIER_HOME
-    if not home.is_dir():
+    try:
+        home_stat = os.lstat(home)
+    except OSError:
         return {"status": "blocked", "reason": "verifier trust root not found"}
+    if (
+        not stat.S_ISDIR(home_stat.st_mode)
+        or home_stat.st_uid not in (0, VERIFIER_UID)
+        or home_stat.st_mode & 0o022
+    ):
+        return {"status": "blocked", "reason": "verifier trust root is not a protected directory"}
+
     grants_file = home / "grants.json"
-    if not grants_file.is_file():
+    try:
+        grants_stat = os.lstat(grants_file)
+    except OSError:
         return {"status": "blocked", "reason": "verifier grants file not found"}
-    stat = grants_file.stat()
-    if stat.st_uid != VERIFIER_UID:
-        return {"status": "blocked", "reason": "grants file not owned by verifier"}
-    if stat.st_mode & 0o077:
-        return {"status": "blocked", "reason": "grants file is world/group writable"}
+    if not stat.S_ISREG(grants_stat.st_mode) or grants_stat.st_uid != VERIFIER_UID:
+        return {"status": "blocked", "reason": "verifier grants file not a verifier-owned regular file"}
+    if grants_stat.st_mode & 0o077:
+        return {"status": "blocked", "reason": "verifier grants file is group/world accessible"}
+
+    keyring_file = home / "keyring.json"
+    try:
+        keyring_stat = os.lstat(keyring_file)
+    except OSError:
+        return {"status": "blocked", "reason": "verifier keyring file not found"}
+    if (
+        not stat.S_ISREG(keyring_stat.st_mode)
+        or keyring_stat.st_uid not in (0, VERIFIER_UID)
+        or keyring_stat.st_mode & 0o022
+    ):
+        return {"status": "blocked", "reason": "verifier keyring is not a protected regular file"}
     return {"status": "ok"}
 
 
