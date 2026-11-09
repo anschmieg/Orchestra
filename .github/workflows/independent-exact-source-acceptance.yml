@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
-      SOURCE_SHA: d2964080677204384cb11e4ee35e7dd158d4f44b
+      SOURCE_SHA: f62537a643f8fb8b74805d0f82e7ee7b847fbd45
       PYTHONDONTWRITEBYTECODE: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -49,7 +49,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          python3 codex/scripts/validate_suite.py --full --comment-base HEAD^
+          python3 codex/scripts/validate_suite.py --full --comment-base 85c65b4f05b58a6936d52cfcbad3446730125834
           rc=$?
           printf 'COMMAND=python3 codex/scripts/validate_suite.py --full --comment-base HEAD^ EXIT=%s\n' "$rc"
           exit "$rc"
