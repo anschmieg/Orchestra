@@ -1,0 +1,33 @@
+name: Independent verifier executable boundary RED
+on:
+  push:
+    branches: [verification/orchestra-20261109-verifier-exec-red]
+permissions:
+  contents: read
+jobs:
+  exact-source-red:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: verification
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: de27299343918f732d8211057768fea18b03be30
+          path: source
+          persist-credentials: false
+      - run: |
+          set -euo pipefail
+          test "$(git -C source rev-parse HEAD)" = "de27299343918f732d8211057768fea18b03be30"
+          cp verification/codex/tests/test_acceptance_verifier_process_code.py source/codex/tests/
+          echo "ORIGINAL_SOURCE_SHA=$(git -C source rev-parse HEAD)"
+      - name: Demonstrate exact-original-source adversarial RED
+        working-directory: source
+        run: |
+          set +e
+          PYTHONPATH=codex/scripts python3 -m unittest discover -s codex/tests -p test_acceptance_verifier_process_code.py -v
+          rc=$?
+          echo "EXPECTED_RED_COMMAND=python3 -m unittest discover -s codex/tests -p test_acceptance_verifier_process_code.py -v EXIT=$rc"
+          test "$rc" -ne 0
