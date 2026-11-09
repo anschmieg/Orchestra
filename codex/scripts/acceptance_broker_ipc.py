@@ -173,7 +173,7 @@ def _attest_at(path: Path, *, task_id: str, context_id: str) -> dict[str, str]:
                 return _blocked('broker peer PIDFD identity mismatch')
             if _peer_exited(peer_pidfd):
                 return _blocked('broker peer exited before challenge')
-            connection.sendall(json.dumps(request, sort_keys=True).encode('utf-8') + b'\\n')
+            connection.sendall(json.dumps(request, sort_keys=True).encode('utf-8') + b'\n')
             response = _read_response(connection)
             if _peer_exited(peer_pidfd):
                 return _blocked('broker peer exited during challenge')
