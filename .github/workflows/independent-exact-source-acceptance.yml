@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
-      SOURCE_SHA: 600348afe590c870c0fc03278cb3a7f35817391d
+      SOURCE_SHA: 153257d7b67c624315edbf309022bfb11c36e44a
       PYTHONDONTWRITEBYTECODE: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -37,11 +37,11 @@ jobs:
           printf 'EXACT_SOURCE=%s\n' "$(git rev-parse HEAD)"
           printf 'TREE=%s\n' "$(git rev-parse HEAD^{tree})"
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
-      - name: Targeted atomic peer identity and broker crash regressions
+      - name: Targeted broker unverified containment claims and real process regressions
         shell: bash
         run: |
           set -euo pipefail
-          for file in test_acceptance_atomic_peer_identity.py test_acceptance_broker_ipc.py test_acceptance_peer_fencing.py; do
+          for file in test_acceptance_broker_claims.py test_acceptance_process_tree.py; do
             python3 -m unittest discover -s codex/tests -p "$file" -v
             printf 'COMMAND=python3 -m unittest discover -s codex/tests -p %s -v EXIT=0\n' "$file"
           done
