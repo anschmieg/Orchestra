@@ -1,0 +1,54 @@
+name: Independent exact-source verifier executable boundary
+on:
+  push:
+    branches: [verification/orchestra-20261109-verifier-exec-green]
+permissions:
+  contents: read
+jobs:
+  exact-source-acceptance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      SOURCE_SHA: c6882c9432f9e6dbac4eb88639a47ab175811ac7
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONPATH: codex/scripts
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: c6882c9432f9e6dbac4eb88639a47ab175811ac7
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.11'
+      - name: Install pinned test cryptography dependency
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check 'cryptography==46.0.3'
+      - name: Verify exact executable original branch feature SHA
+        run: |
+          set -euo pipefail
+          echo "EXACT_FEATURE_SOURCE=$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - name: Targeted loader regression and CLI boundary tests
+        run: |
+          set -euo pipefail
+          for file in test_acceptance_verifier_process_code.py test_acceptance_cli_adversarial.py test_acceptance_verifier_trust_boundary.py test_acceptance_gate.py test_acceptance_security.py; do
+            python3 -m unittest discover -s codex/tests -p "$file" -v
+            echo "TARGETED_COMMAND=python3 -m unittest discover -s codex/tests -p $file -v EXIT=0"
+          done
+      - name: Official full conformance
+        run: |
+          set +e
+          python3 codex/scripts/validate_suite.py --full --comment-base 85c65b4f05b58a6936d52cfcbad3446730125834
+          rc=$?
+          echo "OFFICIAL_COMMAND=python3 codex/scripts/validate_suite.py --full --comment-base 85c65b4f05b58a6936d52cfcbad3446730125834 EXIT=$rc"
+          exit "$rc"
+      - name: Broad adversarial suite
+        if: always()
+        run: |
+          set +e
+          python3 -m unittest discover -s codex/tests -p 'test_acceptance_*.py' -v
+          rc=$?
+          echo "ADVERSARIAL_COMMAND=python3 -m unittest discover -s codex/tests -p 'test_acceptance_*.py' -v EXIT=$rc"
+          exit "$rc"
