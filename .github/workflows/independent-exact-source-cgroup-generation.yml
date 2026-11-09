@@ -1,0 +1,70 @@
+name: Independent exact-source cgroup generation fencing
+on:
+  push:
+    branches:
+      - verification/orchestra-20261109-cgroup-generation
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  official-and-adversarial:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      SOURCE_SHA: 5a35bf79d2677a3f8eac2b52165201a18b1aa309
+      PARENT_SHA: f62537a643f8fb8b74805d0f82e7ee7b847fbd45
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: 5a35bf79d2677a3f8eac2b52165201a18b1aa309
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.11'
+      - name: Install test crypto dependency
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check 'cryptography==46.0.3'
+      - name: Assert exact feature source
+        run: |
+          set -euo pipefail
+          printf 'EXACT_SOURCE=%s\n' "$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - name: Independently reproduce baseline RED
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/orchestra-red/codex/scripts /tmp/orchestra-red/codex/tests
+          git show "$PARENT_SHA:codex/scripts/acceptance_cgroup.py" > /tmp/orchestra-red/codex/scripts/acceptance_cgroup.py
+          cp codex/tests/test_acceptance_cgroup_generation_fence.py /tmp/orchestra-red/codex/tests/
+          set +e
+          python3 -m unittest discover -s /tmp/orchestra-red/codex/tests -p test_acceptance_cgroup_generation_fence.py -v
+          rc=$?
+          set -e
+          printf 'BASELINE_RED_EXIT=%s EXPECT=1\n' "$rc"
+          test "$rc" -eq 1
+      - name: Targeted generation fencing and real OS crash regressions
+        run: |
+          set -euo pipefail
+          for file in test_acceptance_cgroup_generation_fence.py test_acceptance_cgroup_mount_provenance.py test_acceptance_cgroup.py test_acceptance_broker_claims.py test_acceptance_process_tree.py test_acceptance_peer_fencing.py; do
+            python3 -m unittest discover -s codex/tests -p "$file" -v
+            printf 'COMMAND=python3 -m unittest discover -s codex/tests -p %s -v EXIT=0\n' "$file"
+          done
+      - name: Official full conformance
+        run: |
+          set +e
+          python3 codex/scripts/validate_suite.py --full --comment-base 85c65b4f05b58a6936d52cfcbad3446730125834
+          rc=$?
+          printf 'COMMAND=python3 codex/scripts/validate_suite.py --full --comment-base 85c65b4f05b58a6936d52cfcbad3446730125834 EXIT=%s\n' "$rc"
+          exit "$rc"
+      - name: Broad adversarial acceptance
+        if: always()
+        run: |
+          set +e
+          python3 -m unittest discover -s codex/tests -p 'test_acceptance_*.py' -v
+          rc=$?
+          printf "COMMAND=python3 -m unittest discover -s codex/tests -p 'test_acceptance_*.py' -v EXIT=%s\n" "$rc"
+          exit "$rc"
