@@ -27,11 +27,6 @@ VERIFIER_UID = 999
 
 
 def _verifier_principal_check() -> dict[str, Any]:
-    """Check the installed verifier identity and protected trust-root metadata.
-
-    This is a necessary preflight, not evidence that a privileged evaluator
-    broker or independent verifier keys have been installed.
-    """
     if os.getuid() != VERIFIER_UID or os.geteuid() != VERIFIER_UID:
         return {
             "status": "blocked",
