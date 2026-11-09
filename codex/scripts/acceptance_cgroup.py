@@ -1,11 +1,26 @@
 from __future__ import annotations
 
+import ctypes
 import os
 import secrets
 import sys
 from pathlib import Path
 
 CGROUP_ROOT = Path('/sys/fs/cgroup')
+CGROUP2_SUPER_MAGIC = 0x63677270
+
+
+def _is_kernel_cgroup_v2(path: Path) -> bool:
+    """Reject lookalike filesystems before claiming delegated cgroup preflight."""
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+        statfs = libc.statfs
+        statfs.argtypes = (ctypes.c_char_p, ctypes.c_void_p)
+        statfs.restype = ctypes.c_int
+        data = ctypes.create_string_buffer(256)
+        return statfs(os.fsencode(path), data) == 0 and ctypes.c_long.from_buffer(data).value == CGROUP2_SUPER_MAGIC
+    except (OSError, AttributeError, ValueError):
+        return False
 
 
 def probe_unprivileged_delegation() -> dict[str, str | int]:
@@ -13,6 +28,8 @@ def probe_unprivileged_delegation() -> dict[str, str | int]:
         return {'status': 'blocked', 'reason': 'cgroup v2 requires Linux'}
     if os.geteuid() == 0:
         return {'status': 'blocked', 'reason': 'probe must run as an unprivileged UID'}
+    if not _is_kernel_cgroup_v2(CGROUP_ROOT):
+        return {'status': 'blocked', 'reason': 'delegation root is not a kernel cgroup v2 filesystem'}
     if not (CGROUP_ROOT / 'cgroup.controllers').is_file():
         return {'status': 'blocked', 'reason': 'cgroup v2 controllers file is unavailable'}
     path = CGROUP_ROOT / f'orchestra-delegation-probe-{os.getpid()}-{secrets.token_hex(8)}'
