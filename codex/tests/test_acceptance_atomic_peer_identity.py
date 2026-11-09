@@ -15,7 +15,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from acceptance_broker_ipc import BROKER_SOCKET, REQUIRED_CAPABILITIES, SO_PEERPIDFD, _probe_at
+from acceptance_broker_ipc import BROKER_SOCKET, REQUIRED_CAPABILITIES, _probe_at
+
+SO_PEERPIDFD = getattr(socket, 'SO_PEERPIDFD', 77)
 
 
 @unittest.skipUnless(sys.platform.startswith('linux') and hasattr(os, 'pidfd_open'),
