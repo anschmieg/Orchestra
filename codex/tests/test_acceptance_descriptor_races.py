@@ -99,6 +99,7 @@ class ProtectedDescriptorRaceTests(unittest.TestCase):
 
         with patch.object(acceptance_cli.os, "open", side_effect=open_then_swap):
             result = self._check(target)
+        self.assertTrue(fired, "test must exercise actual descriptor open and child replacement")
         self.assertIsNotNone(result, "a path reopened after the pinned descriptor changed")
 
 
