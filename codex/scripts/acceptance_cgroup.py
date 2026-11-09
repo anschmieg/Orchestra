@@ -40,17 +40,35 @@ def probe_unprivileged_delegation() -> dict[str, str | int]:
             'reason': f'no writable delegated cgroup: {error.strerror}',
             'errno': error.errno or 0,
         }
+    fd = None
+    failure = None
+    same_generation = False
+    removed_generation = False
+    available = False
     try:
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        original = os.fstat(fd)
         available = (path / 'cgroup.procs').is_file() and (path / 'cgroup.kill').is_file()
+        current = os.stat(path, follow_symlinks=False)
+        same_generation = (original.st_dev, original.st_ino) == (current.st_dev, current.st_ino)
+    except OSError as error:
+        failure = f'cgroup generation inspection failed: {error.strerror}'
     finally:
         try:
             path.rmdir()
         except OSError as error:
-            return {
-                'status': 'blocked',
-                'reason': f'cgroup probe cleanup failed: {error.strerror}',
-                'errno': error.errno or 0,
-            }
+            failure = f'cgroup probe cleanup failed: {error.strerror}'
+        if fd is not None:
+            try:
+                removed_generation = os.fstat(fd).st_nlink == 0
+            except OSError:
+                failure = 'cgroup generation could not be verified after cleanup'
+            finally:
+                os.close(fd)
+    if failure:
+        return {'status': 'blocked', 'reason': failure}
+    if not same_generation or not removed_generation:
+        return {'status': 'blocked', 'reason': 'cgroup generation changed during delegation preflight'}
     if not available:
         return {'status': 'blocked', 'reason': 'delegated cgroup lacks cgroup.procs or cgroup.kill'}
     return {
