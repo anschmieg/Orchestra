@@ -21,7 +21,6 @@ class PhysicalContainmentProvenanceTests(unittest.TestCase):
         self.assertTrue(_is_kernel_cgroup_v2(Path('/sys/fs/cgroup')))
 
     def test_unprivileged_owned_fake_cgroup_mount_never_reports_delegation(self):
-        """A filesystem lookalike, even with cgroup.* files, is not kernel delegation."""
         runner = r'''
 import json, os, sys
 from pathlib import Path

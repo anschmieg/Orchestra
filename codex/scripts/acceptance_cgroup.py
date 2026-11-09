@@ -11,7 +11,6 @@ CGROUP2_SUPER_MAGIC = 0x63677270
 
 
 def _is_kernel_cgroup_v2(path: Path) -> bool:
-    """Reject lookalike filesystems before claiming delegated cgroup preflight."""
     try:
         libc = ctypes.CDLL(None, use_errno=True)
         statfs = libc.statfs
