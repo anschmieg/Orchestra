@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 
-from acceptance_broker_ipc import probe_broker, _probe_at
+from acceptance_broker_ipc import probe_broker, _probe_at, SO_PEERPIDFD
 
 
 class BrokerIpcAdversarialTests(unittest.TestCase):
@@ -124,7 +124,9 @@ class BrokerIpcAdversarialTests(unittest.TestCase):
                 pass
             def connect(self, *_):
                 pass
-            def getsockopt(self, *_):
+            def getsockopt(self, level, option, length):
+                if option == SO_PEERPIDFD:
+                    return struct.pack('i', os.pidfd_open(os.getpid(), 0))
                 return struct.pack('3i', os.getpid(), 0, 0)
             def sendall(self, message):
                 request = json.loads(message)
