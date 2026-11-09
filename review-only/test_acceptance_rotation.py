@@ -10,6 +10,8 @@ import unittest
 from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import patch
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives import serialization
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "codex" / "scripts"))
 import acceptance_cli as cli
@@ -38,6 +40,8 @@ class RotationAcrossRefusedIPC(unittest.TestCase):
         self.listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.listener.bind(str(self.socket_path))
         self.addCleanup(self.listener.close)
+        self.key_a = Ed25519PrivateKey.generate()
+        self.key_b = Ed25519PrivateKey.generate()
         self.manifest = {
             "schema": 1, "installation_id": "unprivileged-test-only",
             "generation": "gen-A", "task_id": "task", "context_id": "context",
@@ -45,9 +49,15 @@ class RotationAcrossRefusedIPC(unittest.TestCase):
             "broker_executable": [1, 2, stat.S_IFREG | 0o755, 0],
             "socket_identity": list(self.socket_id()),
             "verifier_uid": 999, "evaluator_uid": 1001,
-            "broker_public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "broker_public_key": self.public_key(self.key_a),
         }
         self.write_manifest()
+
+    @staticmethod
+    def public_key(key):
+        return key.public_key().public_bytes(
+            encoding=serialization.Encoding.OpenSSH, format=serialization.PublicFormat.OpenSSH
+        ).decode('ascii')
 
     def socket_id(self):
         s = os.lstat(self.socket_path)
@@ -65,8 +75,13 @@ class RotationAcrossRefusedIPC(unittest.TestCase):
             return {"status": "ok", "installation": json.loads(self.manifest_path.read_text())}
         def endpoint(_path):
             return self.socket_id()
+        original_flags = sys.flags
+        flags = type('Flags', (), {
+            'isolated': 1, 'no_site': 1,
+            '__getattr__': lambda self, name: getattr(original_flags, name),
+        })()
         with ExitStack() as stack:
-            stack.enter_context(patch.object(cli.sys, "flags", type("Flags", (), {"isolated": 1, "no_site": 1})()))
+            stack.enter_context(patch.object(cli.sys, "flags", flags))
             stack.enter_context(patch.object(cli.sys, "prefix", "/usr"))
             stack.enter_context(patch.object(cli.sys, "base_prefix", "/usr"))
             stack.enter_context(patch.object(cli, "BROKER_INSTALLATION", self.manifest_path))
@@ -92,7 +107,7 @@ class RotationAcrossRefusedIPC(unittest.TestCase):
 
     def test_ed25519_public_key_rotated_while_ipc_is_refused(self):
         def change():
-            self.manifest["broker_public_key"] = self.manifest["broker_public_key"][:-1] + "B"
+            self.manifest["broker_public_key"] = self.public_key(self.key_b)
             self.write_manifest()
         reason = self.refusal(change)
         self.assertIn("installation", reason)
