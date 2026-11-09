@@ -140,7 +140,7 @@ def cmd_list(args: argparse.Namespace) -> int:
 def cmd_broker_status(args: argparse.Namespace) -> int:
     result = probe_broker()
     print(json.dumps(result, sort_keys=True))
-    return 0 if result["status"] == "connected_unverified" else 1
+    return 1
 
 
 def _blocked(reason: str) -> int:
