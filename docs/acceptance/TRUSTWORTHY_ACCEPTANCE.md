@@ -136,3 +136,23 @@ OS lifecycle counterexample without protected-host acceptance. The broker
 must independently verify peer executable identities, evaluator UID and
 cgroup containment, use a protected one-shot nonce record and a
 challenge-bound signed receipt before any positive production admission.
+
+## One-use signed admission receipt (independent rootless screening)
+
+The additional `acceptance_receipt.py` verifies Ed25519-signed task/context/nonce,
+cgroup generation, verifier PID/UID/open executable descriptor, and a live
+PIDFD-pinned evaluator's kernel-observed real/effective UID and executable.
+The five-second monotonic expiry is checked before and after consuming the nonce.
+A private per-verifier replay ledger uses a file lock, exact-record integrity
+checks, fsync of file and directory, and single-use consumption, including
+after SIGKILL/restart. Corrupt or inaccessible storage blocks.
+
+This API intentionally returns `verified_uninstalled`, **never** `accepted`
+or GO. Its injectable public key and the offline fake evaluator in unit
+tests are not operator-provisioned trust anchors. An operator-controlled,
+protected launcher must provide the immutable signing public key,
+replay-storage ancestry and identity/cgroup-generation provenance before
+the screen can be used for protected admission. `approve` remains blocked,
+the evaluator gate never runs untrusted checks, and mock broker success
+cannot overcome those requirements. This milestone is a negative security
+screen, **not** an end-to-end privileged acceptance.

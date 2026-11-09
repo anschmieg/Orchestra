@@ -99,7 +99,7 @@ def _installed_verifier_admission_check() -> dict[str, str]:
     code_files = (
         "acceptance_cli.py", "acceptance_gate.py", "acceptance_broker_ipc.py",
         "acceptance_keyring.py", "acceptance_policy.py",
-        "acceptance_reconcile.py", "acceptance_evidence.py",
+        "acceptance_reconcile.py", "acceptance_evidence.py", "acceptance_receipt.py",
     )
     paths = [("interpreter", Path(sys.executable))]
     paths.extend((f"verifier code {name}", HERE / name) for name in code_files)
