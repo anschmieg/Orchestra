@@ -113,3 +113,26 @@ verifier/evaluator identities, supply protected signing keys and use a
 challenge-bound broker attestation tied to each accepted result and cgroup
 generation. Until that is deployed and demonstrated, production admission is
 **BLOCKED_SAFE / NO-GO**, irrespective of passing rootless tests.
+
+## Task/context-bound broker challenge (negative screen)
+
+`acceptance_broker_ipc.attest_broker(task_id=..., context_id=...)` now issues
+a fresh 256-bit nonce per invocation with a five-second monotonic deadline.
+A response must match the exact task, context, nonce, verifier PID and
+kernel-reported real/effective UID, and an executable descriptor held open
+through the exchange. The connection checks root-owned peer credentials and
+a kernel-supplied peer PIDFD, including broker death during the handshake.
+It also rejects an expired challenge, changed verifier UID or executable
+descriptor, replayed task/context and unprivileged evaluator-UID claims.
+
+The evaluator UID in an offline response is still a **claim**, not a
+kernel measurement by an installed privileged broker. There is no protected
+broker signing key, replay ledger, installed launcher, evaluator process
+identity or cgroup generation proof yet. A well-formed response returns
+`connected_unverified`, never `accepted`; `approve` remains blocked.
+Unit tests with forged root peers are simulation only; a Linux child
+descriptor-handoff/exec-after-parent-death regression demonstrates a real
+OS lifecycle counterexample without protected-host acceptance. The broker
+must independently verify peer executable identities, evaluator UID and
+cgroup containment, use a protected one-shot nonce record and a
+challenge-bound signed receipt before any positive production admission.
