@@ -143,7 +143,7 @@ The additional `acceptance_receipt.py` verifies Ed25519-signed task/context/nonc
 cgroup generation, verifier PID/UID/open executable descriptor, and a live
 PIDFD-pinned evaluator's kernel-observed real/effective UID and executable.
 The five-second monotonic expiry is checked before and after consuming the nonce.
-A private per-verifier replay ledger uses a file lock, exact-record integrity
+A pre-provisioned private per-verifier replay ledger (never auto-created after deletion) uses a file lock, exact-record integrity
 checks, fsync of file and directory, and single-use consumption, including
 after SIGKILL/restart. Corrupt or inaccessible storage blocks.
 

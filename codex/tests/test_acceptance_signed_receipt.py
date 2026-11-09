@@ -25,6 +25,7 @@ class SignedAdmissionReceiptTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.ledger = Path(self.tmp.name) / "protected-ledger"
         self.ledger.mkdir(mode=0o700)
+        (self.ledger / "used-nonces").touch(mode=0o600)
         self.key = Ed25519PrivateKey.generate()
         self.public = self.key.public_key()
         now = time.monotonic_ns()

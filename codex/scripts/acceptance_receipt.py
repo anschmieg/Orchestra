@@ -99,7 +99,7 @@ def _consume_once(ledger_dir: Path, nonce: str) -> dict[str, str]:
             return _blocked("receipt replay directory lacks private verifier ownership")
         ledger_fd = os.open(
             "used-nonces",
-            os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC,
+            os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC,
             0o600, dir_fd=directory_fd)
         record = os.fstat(ledger_fd)
         if (not stat.S_ISREG(record.st_mode) or record.st_uid != os.geteuid()
