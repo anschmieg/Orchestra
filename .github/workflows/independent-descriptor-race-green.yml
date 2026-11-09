@@ -1,0 +1,58 @@
+name: Independent exact-source descriptor race acceptance
+on:
+  push:
+    branches: [verification/orchestra-20261109-descriptor-race-green]
+permissions:
+  contents: read
+jobs:
+  pinned-source-descriptor-races:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      SOURCE_SHA: ba027b6bb6736444cfc9a05c70825fd2b6ff3231
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONPATH: codex/scripts
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ba027b6bb6736444cfc9a05c70825fd2b6ff3231
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.11'
+      - name: Install pinned acceptance dependency
+        run: |
+          python3 -m pip install --disable-pip-version-check 'cryptography==46.0.3'
+      - name: Assert exact source SHA
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          echo "EXACT_SOURCE=$SOURCE_SHA"
+      - name: Targeted OS-process descriptor races
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s codex/tests -p test_acceptance_descriptor_races.py -v
+      - name: Surrounding broker and verifier admission regressions
+        if: always()
+        run: |
+          set -euo pipefail
+          for testfile in test_acceptance_installed_admission.py test_acceptance_verifier_trust_boundary.py test_acceptance_verifier_process_code.py test_acceptance_broker_ipc.py; do
+            python3 -m unittest discover -s codex/tests -p "$testfile" -v
+            echo "REGRESSION_COMMAND=python3 -m unittest discover -s codex/tests -p $testfile -v EXIT=0"
+          done
+      - name: Official full 13
+        if: always()
+        run: |
+          set +e
+          python3 codex/scripts/validate_suite.py --full --comment-base 85c65b4f05b58a6936d52cfcbad3446730125834
+          rc=$?
+          echo "OFFICIAL_COMMAND=python3 codex/scripts/validate_suite.py --full --comment-base 85c65b4f05b58a6936d52cfcbad3446730125834 EXIT=$rc"
+          exit "$rc"
+      - name: Broad adversarial acceptance
+        if: always()
+        run: |
+          set +e
+          python3 -m unittest discover -s codex/tests -p 'test_acceptance_*.py' -v
+          rc=$?
+          echo "BROAD_COMMAND=python3 -m unittest discover -s codex/tests -p 'test_acceptance_*.py' -v EXIT=$rc"
+          exit "$rc"
