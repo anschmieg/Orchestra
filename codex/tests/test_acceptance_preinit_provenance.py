@@ -13,7 +13,6 @@ FORGED = '{"status":"accepted","source":"attacker-bootstrap"}'
 
 
 class PreInitializationProvenanceCounterexamples(unittest.TestCase):
-    """Disposable same-UID OS processes; none is a protected verifier install."""
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="orchestra-preinit-")
@@ -35,8 +34,6 @@ class PreInitializationProvenanceCounterexamples(unittest.TestCase):
         if isolated:
             argv.append("-I")
         if trusted_bootstrap:
-            # Under -I the script directory is *not* implicitly importable.
-            # A trusted launcher must insert only its installed verifier root.
             bootstrap = (
                 "import runpy, sys; sys.path.insert(0, sys.argv[1]); "
                 "sys.argv = sys.argv[2:]; runpy.run_path(sys.argv[0], run_name='__main__')"
