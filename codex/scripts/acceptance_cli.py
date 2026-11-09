@@ -181,12 +181,6 @@ def _load_operator_installation() -> dict[str, Any]:
 
 
 def _installed_boundary_snapshot(manifest: dict[str, Any]) -> dict[str, Any]:
-    """Recheck protected path identities and kernel process/cgroup state around IPC.
-
-    Directory metadata deliberately excludes timestamps/size: append-only replay
-    bookkeeping may legitimately create ledger entries during receipt consumption.
-    File metadata and inode identity must remain stable for the entire operation.
-    """
     tracked = [
         ("operator manifest", BROKER_INSTALLATION, "broker installation manifest", (0,), False),
         ("socket parent", BROKER_SOCKET.parent, "verifier trust root", (0,), True),
@@ -281,8 +275,6 @@ def _installed_verifier_admission_check() -> dict[str, str]:
         expected_endpoint_identity=manifest["socket_identity"],
         expected_evaluator_uid=manifest["evaluator_uid"],
     )
-    # Re-read protected installation and compare its content and inode identities
-    # even when the broker refused; a concurrent rotation must not be hidden by IPC.
     refreshed_installation = _load_operator_installation()
     if (refreshed_installation.get("status") != "ok"
             or refreshed_installation.get("installation") != manifest):

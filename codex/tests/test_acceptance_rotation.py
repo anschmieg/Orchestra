@@ -16,7 +16,6 @@ from cryptography.hazmat.primitives import serialization
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "codex" / "scripts"))
 import acceptance_cli as cli
 
-# Adversarial unprivileged NEGATIVES only: no root installation, broker, or GO simulated.
 CODE_FILES = (
     "acceptance_cli.py", "acceptance_gate.py", "acceptance_broker_ipc.py",
     "acceptance_keyring.py", "acceptance_policy.py", "acceptance_reconcile.py",
@@ -75,7 +74,6 @@ class RotationAcrossRefusedIPC(unittest.TestCase):
             tamper()
             return {"status": "blocked", "reason": "unprivileged negative broker refusal"}
         def fake_load():
-            # This fixture reads attacker-controlled data; it is NOT protected installation.
             return {"status": "ok", "installation": json.loads(self.manifest_path.read_text())}
         def endpoint(_path):
             return self.socket_id()
@@ -120,10 +118,13 @@ class RotationAcrossRefusedIPC(unittest.TestCase):
 
     def test_socket_inode_replaced_after_broker_refusal(self):
         def change():
+            replacement_path = self.root / "replacement.sock"
+            replacement_listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            replacement_listener.bind(str(replacement_path))
             self.listener.close()
             self.socket_path.unlink()
-            self.listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            self.listener.bind(str(self.socket_path))
+            replacement_path.replace(self.socket_path)
+            self.listener = replacement_listener
         reason = self.refusal(change)
         self.assertIn("installation", reason)
         self.assertIn("changed", reason)
