@@ -9,13 +9,13 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
-      SOURCE_SHA: 022daa1cce8b892b283e95400febf6d0c416d673
+      SOURCE_SHA: fec5798bed973a2d46da3ca52e7253ddc7bb49eb
       PYTHONDONTWRITEBYTECODE: "1"
       PYTHONPATH: codex/scripts
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: 022daa1cce8b892b283e95400febf6d0c416d673
+          ref: fec5798bed973a2d46da3ca52e7253ddc7bb49eb
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
@@ -26,7 +26,7 @@ jobs:
       - name: Assert pinned ORIGINAL feature source and receipt blob
         run: |
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
-          test "$(git rev-parse HEAD:codex/scripts/acceptance_receipt.py)" = "271859d2d9d2853dd39b5ca389447a1eda3f561a"
+          test "$(git rev-parse HEAD:codex/scripts/acceptance_receipt.py)" = "6d53270d04b1627433a231b1d98e542762baf0ef"
           echo "EXACT_ORIGINAL_SOURCE=$SOURCE_SHA"
       - name: Targeted signed receipt and SIGKILL one-use regressions
         run: python3 -m unittest discover -s codex/tests -p 'test_acceptance_signed_receipt.py' -v
