@@ -1,0 +1,34 @@
+name: Independent installed-admission RED exact-source
+on:
+  push:
+    branches: [verification/orchestra-20261109-installed-admission-red]
+permissions:
+  contents: read
+jobs:
+  red-admission:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: 3ff4dd8a29194ce29317a6557abedf4e83cf22c5
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.11'
+      - name: Assert exact RED source, observe failing adversarial tests
+        env:
+          SOURCE_SHA: 3ff4dd8a29194ce29317a6557abedf4e83cf22c5
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          echo "RED_SOURCE=$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          set +e
+          python3 -m unittest discover -s codex/tests -p test_acceptance_installed_admission.py -v > /tmp/red-tests.log 2>&1
+          result=$?
+          set -e
+          cat /tmp/red-tests.log
+          echo "RED_EXIT=$result"
+          test "$result" -ne 0
