@@ -110,7 +110,6 @@ class BrokerIpcAdversarialTests(unittest.TestCase):
     @unittest.skipUnless(sys.platform.startswith('linux') and hasattr(os, 'pidfd_open'),
                          'requires Linux pidfd and a real unrelated process')
     def test_unrelated_live_process_pidfd_cannot_authenticate_claimed_broker(self):
-        # Simulated root credentials must not accept a pidfd for a different live process.
         unrelated = subprocess.Popen(
             [sys.executable, '-c', 'import time;time.sleep(60)'],
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

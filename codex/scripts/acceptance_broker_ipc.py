@@ -70,7 +70,6 @@ def _peer_exited(pidfd: int) -> bool:
 
 
 def _pidfd_matches_credential_pid(pidfd: int, claimed_pid: int) -> bool:
-    # fdinfo binds the owner lookup to the pinned pidfd, not to a reusable PID.
     with open(f'/proc/self/fdinfo/{pidfd}', encoding='ascii') as details:
         owners = [line.partition(':')[2].strip()
                   for line in details if line.startswith('Pid:')]
