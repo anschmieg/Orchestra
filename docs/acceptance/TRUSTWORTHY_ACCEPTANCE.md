@@ -53,6 +53,28 @@ invoked by a privileged broker with sanitized process startup and distinct OS
 principal. Running `acceptance_cli.py` from a candidate checkout, even with
 these subprocess safeguards, is not authoritative and cannot grant GO.
 
+## Pre-initialization executable and interpreter provenance
+
+**Unprivileged counterexamples, not an installed-verifier acceptance:** The
+real-process tests in `test_acceptance_preinit_provenance.py` demonstrate that
+an implementer-controlled `PYTHONPATH/sitecustomize` runs *before* the parent
+CLI imports; a writable Python virtual environment executes an attacker `.pth`
+file even with Python `-I`; and an attacker-owned interpreter binary or
+swappable executable symlink can ignore `-I` entirely. An unprotected copy of
+the verifier CLI can likewise be replaced before any in-Python guard executes.
+These are bootstrap compromises, not successful authorized acceptance.
+
+**Operator-only blocker:** The privileged broker must `execve` an absolute,
+operator-pinned Python executable and verifier entrypoint from a protected
+independently installed root, with an allowlisted environment fixed *before*
+starting the interpreter. The entire executable, dynamic-loader/library chain,
+symlink path, Python environment, site-packages and `.pth` files must be
+non-writable by implementers; otherwise `-I`, `-S`, Python ownership checks
+and child-only environment sanitization cannot establish the trust boundary.
+Provisioning and validating this installation, separate evaluator/verifier OS
+UIDs, protected keys, and cgroup SIGKILL/double-fork cleanup require explicit
+operator authorization. No rootless test grants GO.
+
 ## Adversarial pilot
 
 `codex/tests/test_acceptance_adversarial.py` checks signature, key and commit rejection. `codex/tests/test_acceptance_fail_closed_milestone.py` additionally proves that unprivileged execution never launches a malicious check, so a dummy private key cannot be accessed and a forged PASS marker cannot be written. These are non-privileged regression tests, **not** installed-broker acceptance.
