@@ -9,13 +9,13 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
-      SOURCE_SHA: 3cb303bfda2877b353ac44dff4a29291e3edc35b
+      SOURCE_SHA: 9d3c25007c8691199e7b53e4e18ef3607ee5b8a5
       PYTHONDONTWRITEBYTECODE: "1"
       PYTHONPATH: codex/scripts
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: 3cb303bfda2877b353ac44dff4a29291e3edc35b
+          ref: 9d3c25007c8691199e7b53e4e18ef3607ee5b8a5
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
@@ -38,7 +38,7 @@ jobs:
           from pathlib import Path
           with tempfile.TemporaryDirectory(prefix="original-exec-red-") as d:
               root = Path(d)
-              (root / "sitecustomize.py").write_text("import os\nos.write(1, b'{\\"status\\":\\"accepted\\",\\"red\\":true}\\n')\nos._exit(0)\n")
+              (root / "sitecustomize.py").write_text("import os" + chr(10) + "os.write(1, " + repr(('{"status":"accepted","red":true}' + chr(10)).encode()) + ")" + chr(10) + "os._exit(0)" + chr(10))
               env = {**os.environ, "PYTHONPATH": d}
               env.pop("PYTHONHOME", None)
               p = subprocess.run([sys.executable, "codex/scripts/acceptance_cli.py", "--help"], env=env, capture_output=True, text=True)
