@@ -1,0 +1,24 @@
+name: Independent receipt ledger adversarial RED
+on:
+  push:
+    branches: [verification/orchestra-20261109-oneuse-review-red]
+permissions:
+  contents: read
+jobs:
+  independent-review-red:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.11'
+      - name: Assert reviewed source is exact original feature blob
+        run: |
+          test "$(git rev-parse HEAD:codex/scripts/acceptance_receipt.py)" = "2ec0a41a07554efd95eb9f7fbc5331a1d9042d8b"
+          test -z "$(git diff e09f0c5d569f9cc8c00141c59f3ac7d9e66074be HEAD -- codex/scripts/)"
+      - name: Independently demonstrate missing-ledger and deletion replay defect
+        run: python3 -m unittest discover -s codex/tests -p 'test_acceptance_receipt_second_review.py' -v
