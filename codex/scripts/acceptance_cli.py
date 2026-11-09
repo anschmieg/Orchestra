@@ -78,8 +78,15 @@ def _run(repo: Path, command: list[str]) -> tuple[int, str, str]:
         "LANG": "C",
         "LC_ALL": "C",
     }
+    bootstrap = (
+        "import runpy, sys; "
+        "sys.path.insert(0, sys.argv[1]); "
+        "sys.argv = sys.argv[2:]; "
+        "runpy.run_path(sys.argv[0], run_name='__main__')"
+    )
     process = subprocess.run(
-        [sys.executable, "-I", str(HERE / command[0]), *command[1:]],
+        [sys.executable, "-I", "-c", bootstrap, str(HERE),
+         str(HERE / command[0]), *command[1:]],
         cwd=str(VERIFIER_HOME),
         env=env,
         capture_output=True, text=True, check=False,
