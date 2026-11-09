@@ -97,7 +97,6 @@ def _protected_path(path: Path, *, label: str, owners: tuple[int, ...]) -> str |
 
 
 def _load_operator_installation() -> dict[str, Any]:
-    """Read only an operator-installed root-controlled broker identity, never a CLI key."""
     violation = _protected_path(
         BROKER_INSTALLATION, label="broker installation manifest", owners=(0,))
     if violation:
@@ -197,8 +196,6 @@ def _installed_verifier_admission_check() -> dict[str, str]:
         violation = _protected_path(path, label=label, owners=(0,))
         if violation:
             return {"status": "blocked", "reason": violation}
-    # Root-pinned installation metadata is independent of all verifier CLI arguments,
-    # environment variables and user-managed keyrings.
     installed = _load_operator_installation()
     if installed["status"] != "ok":
         return {"status": "blocked", "reason": "broker attestation missing: " + installed["reason"]}
@@ -234,8 +231,6 @@ def _installed_verifier_admission_check() -> dict[str, str]:
     if receipt.get("status") != "verified_uninstalled":
         return {"status": "blocked", "reason":
                 "protected installed broker receipt rejected: " + receipt.get("reason", "unverified")}
-    # A signed broker receipt, including a test double, does NOT prove installed
-    # SIGKILL/double-fork/cgroup containment; require operator-only physical positive.
     return {"status": "blocked",
             "reason": "operator-installed positive crash containment not yet attested"}
 
