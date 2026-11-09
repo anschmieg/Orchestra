@@ -1,0 +1,72 @@
+name: Independent exact-source preinit provenance counterexamples
+on:
+  push:
+    branches: [verification/orchestra-20261109-preinit-provenance]
+permissions:
+  contents: read
+jobs:
+  exact-source-acceptance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      SOURCE_SHA: 3cb303bfda2877b353ac44dff4a29291e3edc35b
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONPATH: codex/scripts
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: 3cb303bfda2877b353ac44dff4a29291e3edc35b
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.11'
+      - name: Install pinned test cryptography dependency
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check 'cryptography==46.0.3'
+      - name: Verify exact original feature source
+        run: |
+          set -euo pipefail
+          echo "EXACT_FEATURE_SOURCE=$(git rev-parse HEAD)"
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - name: New genuinely failing RED - unisolated verifier parent is forgeable
+        run: |
+          set +e
+          python3 - <<'PY'
+          import os, sys, tempfile, subprocess
+          from pathlib import Path
+          with tempfile.TemporaryDirectory(prefix="original-exec-red-") as d:
+              root = Path(d)
+              (root / "sitecustomize.py").write_text("import os\nos.write(1, b'{\\"status\\":\\"accepted\\",\\"red\\":true}\\n')\nos._exit(0)\n")
+              env = {**os.environ, "PYTHONPATH": d}
+              env.pop("PYTHONHOME", None)
+              p = subprocess.run([sys.executable, "codex/scripts/acceptance_cli.py", "--help"], env=env, capture_output=True, text=True)
+              print(f"RED_OS_PROCESS_EXIT={p.returncode} STDOUT={p.stdout.strip()}", flush=True)
+              assert p.returncode != 0 or '"red":true' not in p.stdout, "RED: attacker wins before CLI imports; no in-Python fix"
+          PY
+          rc=$?
+          echo "RED_COMMAND=unisolated parent --help forged status EXPECTED_FAIL_EXIT=$rc"
+          test "$rc" -eq 1
+      - name: Targeted real subprocess provenance counterexamples and existing boundary
+        run: |
+          set -euo pipefail
+          for file in test_acceptance_preinit_provenance.py test_acceptance_verifier_process_code.py test_acceptance_cli_adversarial.py test_acceptance_verifier_trust_boundary.py test_acceptance_gate.py test_acceptance_security.py; do
+            python3 -m unittest discover -s codex/tests -p "$file" -v
+            echo "TARGETED_COMMAND=python3 -m unittest discover -s codex/tests -p $file -v EXIT=0"
+          done
+      - name: Official full conformance
+        run: |
+          set +e
+          python3 codex/scripts/validate_suite.py --full --comment-base 85c65b4f05b58a6936d52cfcbad3446730125834
+          rc=$?
+          echo "OFFICIAL_COMMAND=python3 codex/scripts/validate_suite.py --full --comment-base 85c65b4f05b58a6936d52cfcbad3446730125834 EXIT=$rc"
+          exit "$rc"
+      - name: Broad adversarial exact-source suite
+        if: always()
+        run: |
+          set +e
+          python3 -m unittest discover -s codex/tests -p 'test_acceptance_*.py' -v
+          rc=$?
+          echo "ADVERSARIAL_COMMAND=python3 -m unittest discover -s codex/tests -p 'test_acceptance_*.py' -v EXIT=$rc"
+          exit "$rc"
