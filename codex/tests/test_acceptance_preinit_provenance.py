@@ -30,11 +30,20 @@ class PreInitializationProvenanceCounterexamples(unittest.TestCase):
             "os._exit(0)\n", encoding="utf-8"
         )
 
-    def _launch(self, executable, *, isolated, env=None, script=CLI):
+    def _launch(self, executable, *, isolated, env=None, script=CLI, trusted_bootstrap=False):
         argv = [str(executable)]
         if isolated:
             argv.append("-I")
-        argv.extend([str(script), "--help"])
+        if trusted_bootstrap:
+            # Under -I the script directory is *not* implicitly importable.
+            # A trusted launcher must insert only its installed verifier root.
+            bootstrap = (
+                "import runpy, sys; sys.path.insert(0, sys.argv[1]); "
+                "sys.argv = sys.argv[2:]; runpy.run_path(sys.argv[0], run_name='__main__')"
+            )
+            argv.extend(["-c", bootstrap, str(CLI.parent), str(script), "--help"])
+        else:
+            argv.extend([str(script), "--help"])
         return subprocess.run(argv, env=env, capture_output=True, text=True, timeout=15, check=False)
 
     def test_inherited_pythonpath_forges_before_trusted_cli_imports(self):
@@ -48,7 +57,7 @@ class PreInitializationProvenanceCounterexamples(unittest.TestCase):
     def test_isolated_parent_ignores_checkout_sitecustomize(self):
         env = {**os.environ, "PYTHONPATH": str(self.checkout)}
         env.pop("PYTHONHOME", None)
-        result = self._launch(sys.executable, isolated=True, env=env)
+        result = self._launch(sys.executable, isolated=True, env=env, trusted_bootstrap=True)
         self.assertNotIn(FORGED, result.stdout + result.stderr)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("usage:", result.stdout)
