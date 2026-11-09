@@ -21,7 +21,6 @@ import acceptance_cli
                      "requires Linux pidfd and /proc/self/exe")
 class BrokerChallengeBindingTests(unittest.TestCase):
     def _exchange(self, change=None, *, peer_uid=0, exited=None):
-        """Fake wire peer only. Never a privileged acceptance receipt."""
         class Peer:
             def __enter__(self): return self
             def __exit__(self, *args): pass
@@ -98,8 +97,6 @@ class BrokerChallengeBindingTests(unittest.TestCase):
             self.assertEqual(self._exchange()["status"], "blocked")
 
     def test_broker_parent_death_does_not_authenticate_surviving_child(self):
-        # A real unrelated child survives the simulated broker loss; it cannot
-        # inherit authority from a PIDFD-pinned, exited parent.
         child = subprocess.Popen([sys.executable, "-c", "import time;time.sleep(30)"],
                                  stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                  stderr=subprocess.DEVNULL)
@@ -110,6 +107,75 @@ class BrokerChallengeBindingTests(unittest.TestCase):
             if child.poll() is None:
                 child.kill()
             child.wait(timeout=5)
+
+
+    def test_exec_after_parent_death_with_inherited_descriptor_cannot_authenticate(self):
+        import select
+        output_read, output_write = os.pipe()
+        gate_read, gate_write = os.pipe()
+        parent = None
+        parent_pidfd = None
+        child_pid = None
+        child_code = (
+            "import os,sys;"
+            "gate=int(sys.argv[1]);out=int(sys.argv[2]);"
+            "os.read(gate,1);os.set_inheritable(out,True);"
+            "os.execv(sys.executable,[sys.executable,'-c',"
+            "'import os,sys,time;os.write(int(sys.argv[1]),b\"EXEC_AFTER_DEATH\");time.sleep(15)',str(out)])"
+        )
+        parent_code = (
+            "import subprocess,sys\n"
+            f"code = {child_code!r}\n"
+            "child=subprocess.Popen([sys.executable,'-c',code,*sys.argv[1:]],"
+            "pass_fds=(int(sys.argv[1]),int(sys.argv[2])),"
+            "start_new_session=True,stdin=subprocess.DEVNULL,"
+            "stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)\n"
+            "print(child.pid,flush=True)\n"
+        )
+        try:
+            parent = subprocess.Popen(
+                [sys.executable, "-c", parent_code, str(gate_read), str(output_write)],
+                pass_fds=(gate_read, output_write),
+                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, text=True)
+            parent_pidfd = os.pidfd_open(parent.pid, 0)
+            child_pid = int(parent.stdout.readline().strip())
+            self.assertEqual(parent.wait(timeout=5), 0)
+            os.write(gate_write, b"1")
+            ready, _, _ = select.select([output_read], [], [], 5)
+            self.assertTrue(ready, "exec child did not hand off inherited descriptor")
+            self.assertEqual(os.read(output_read, 16), b"EXEC_AFTER_DEATH")
+
+            class ExitedRootPeer:
+                def __enter__(self): return self
+                def __exit__(self, *args): pass
+                def settimeout(self, *_): pass
+                def connect(self, *_): pass
+                def getsockopt(self, level, option, length):
+                    if option == SO_PEERPIDFD:
+                        return struct.pack("i", os.dup(parent_pidfd))
+                    return struct.pack("3i", parent.pid, 0, 0)
+                def sendall(self, _):
+                    raise AssertionError("request must never reach dead parent")
+            with patch("acceptance_broker_ipc._trusted_endpoint", return_value=None), \
+                 patch("acceptance_broker_ipc.socket.socket", return_value=ExitedRootPeer()), \
+                 patch("acceptance_broker_ipc._pidfd_matches_credential_pid", return_value=True):
+                result = _attest_at(BROKER_SOCKET, task_id="task-A", context_id="context-A")
+            self.assertEqual(result["status"], "blocked", result)
+            self.assertIn("exited before challenge", result["reason"])
+        finally:
+            if child_pid is not None:
+                try: os.kill(child_pid, 9)
+                except ProcessLookupError: pass
+            if parent is not None:
+                if parent.poll() is None: parent.kill()
+                parent.wait(timeout=5)
+                if parent.stdout: parent.stdout.close()
+                if parent.stderr: parent.stderr.close()
+            for fd in (parent_pidfd, gate_read, gate_write, output_read, output_write):
+                if fd is not None:
+                    try: os.close(fd)
+                    except OSError: pass
 
     def test_offline_forged_broker_cannot_make_production_admission_pass(self):
         with patch.object(acceptance_cli.sys, "flags", SimpleNamespace(isolated=1, no_site=1)), \
