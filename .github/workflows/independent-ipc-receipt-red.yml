@@ -1,0 +1,32 @@
+name: Independent original live broker IPC receipt RED
+on:
+  push:
+    branches: [verification/orchestra-20261109-ipc-receipt-red]
+permissions:
+  contents: read
+jobs:
+  independent-ipc-red:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      SOURCE_SHA: c90cc9a82106ede917b53e24871b66fee54dd115
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONPATH: codex/scripts
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: c90cc9a82106ede917b53e24871b66fee54dd115
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - name: Install pinned cryptography
+        run: python3 -m pip install --disable-pip-version-check 'cryptography==46.0.3'
+      - name: Assert exact ORIGINAL test-first source and unfixed IPC blob
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$(git rev-parse HEAD:codex/scripts/acceptance_broker_ipc.py)" = "efee8b23b5f105bd144bf1082848bd8d18bc99c7"
+          echo "EXACT_ORIGINAL_TEST_FIRST_RED=$SOURCE_SHA"
+      - name: Live signed IPC adversarial RED must fail with exit 1
+        run: python3 -m unittest discover -s codex/tests -p 'test_acceptance_ipc_receipt_binding.py' -v
