@@ -127,16 +127,16 @@ class BrokerChallengeBindingTests(unittest.TestCase):
             "gate=int(sys.argv[1]);out=int(sys.argv[2]);"
             "os.read(gate,1);os.set_inheritable(out,True);"
             "os.execv(sys.executable,[sys.executable,'-c',"
-            "'import os,sys,time;os.write(int(sys.argv[1]),b\\\"EXEC_AFTER_DEATH\\\");time.sleep(15)',str(out)])"
+            "'import os,sys,time;os.write(int(sys.argv[1]),b\"EXEC_AFTER_DEATH\");time.sleep(15)',str(out)])"
         )
         parent_code = (
-            "import subprocess,sys\\n"
-            f"code = {child_code!r}\\n"
+            "import subprocess,sys\n"
+            f"code = {child_code!r}\n"
             "child=subprocess.Popen([sys.executable,'-c',code,*sys.argv[1:]],"
             "pass_fds=(int(sys.argv[1]),int(sys.argv[2])),"
             "start_new_session=True,stdin=subprocess.DEVNULL,"
-            "stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)\\n"
-            "print(child.pid,flush=True)\\n"
+            "stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)\n"
+            "print(child.pid,flush=True)\n"
         )
         try:
             parent = subprocess.Popen(
@@ -163,8 +163,8 @@ class BrokerChallengeBindingTests(unittest.TestCase):
                     return struct.pack("3i", parent.pid, 0, 0)
                 def sendall(self, _):
                     raise AssertionError("request must never reach dead parent")
-            with patch("acceptance_broker_ipc._trusted_endpoint", return_value=None), \\
-                 patch("acceptance_broker_ipc.socket.socket", return_value=ExitedRootPeer()), \\
+            with patch("acceptance_broker_ipc._trusted_endpoint", return_value=None), \
+                 patch("acceptance_broker_ipc.socket.socket", return_value=ExitedRootPeer()), \
                  patch("acceptance_broker_ipc._pidfd_matches_credential_pid", return_value=True):
                 result = _attest_at(BROKER_SOCKET, task_id="task-A", context_id="context-A")
             self.assertEqual(result["status"], "blocked", result)
