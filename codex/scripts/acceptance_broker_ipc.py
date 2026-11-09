@@ -9,6 +9,9 @@ import stat
 import struct
 import time
 from pathlib import Path
+from typing import Any
+
+from acceptance_receipt import verify_one_use_receipt
 
 BROKER_SOCKET = Path('/run/orchestra-acceptance/broker.sock')
 PROTOCOL_VERSION = 1
@@ -212,3 +215,86 @@ def attest_broker(*, task_id: str, context_id: str) -> dict[str, str]:
 
 def probe_broker() -> dict[str, str]:
     return _probe_at(BROKER_SOCKET)
+
+
+def _endpoint_identity(path: Path) -> tuple[int, int, int, int]:
+    endpoint = os.lstat(path)
+    return (endpoint.st_dev, endpoint.st_ino, endpoint.st_uid, endpoint.st_mode)
+
+
+def _protected_receipt_at(
+    path: Path, *, task_id: str, context_id: str, generation: str,
+    broker_verify_key: Any, ledger_dir: Path,
+) -> dict[str, str]:
+    for label, value in (('task', task_id), ('context', context_id),
+                         ('generation', generation)):
+        if (type(value) is not str or not (0 < len(value) <= 256)
+                or value != value.strip()
+                or any(ord(c) < 32 or ord(c) == 127 for c in value)):
+            return _blocked(f'invalid protected broker {label} identifier')
+    violation = _trusted_endpoint(path)
+    if violation:
+        return _blocked(violation)
+
+    peer_pidfd = None
+    executable_fd = None
+    try:
+        if not hasattr(os, 'O_PATH'):
+            return _blocked('verifier executable descriptor pinning unavailable')
+        endpoint = _endpoint_identity(path)
+        executable_fd = os.open('/proc/self/exe', os.O_PATH | os.O_CLOEXEC)
+        verifier_executable = _executable_descriptor_identity(executable_fd)
+        verifier_uid, verifier_euid = os.getuid(), os.geteuid()
+        issued = time.monotonic_ns()
+        expires = issued + CHALLENGE_TTL_NS
+        challenge = {
+            'nonce': secrets.token_hex(32),
+            'task_id': task_id, 'context_id': context_id,
+            'generation': generation,
+            'issued_monotonic_ns': issued, 'expires_monotonic_ns': expires,
+            'verifier_pid': os.getpid(), 'verifier_uid': verifier_uid,
+            'verifier_euid': verifier_euid,
+            'verifier_executable': verifier_executable,
+        }
+        request = {'protocol': 3, 'operation': 'protected-admission', **challenge}
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+            connection.settimeout(1.0)
+            connection.connect(str(path))
+            if _endpoint_identity(path) != endpoint:
+                return _blocked('protected broker endpoint replaced during connect')
+            peer_pid, peer_uid, _peer_gid = struct.unpack(
+                '3i', connection.getsockopt(
+                    socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+            if peer_uid != 0 or peer_pid <= 0:
+                return _blocked('protected broker connection has no root peer')
+            peer_pidfd = struct.unpack('i', connection.getsockopt(
+                socket.SOL_SOCKET, SO_PEERPIDFD, struct.calcsize('i')))[0]
+            if peer_pidfd < 0 or not _pidfd_matches_credential_pid(peer_pidfd, peer_pid):
+                return _blocked('protected broker PIDFD does not match connected peer')
+            if _peer_exited(peer_pidfd):
+                return _blocked('protected broker died before admission challenge')
+            connection.sendall(json.dumps(
+                request, sort_keys=True, separators=(',', ':')).encode('utf-8') + b'\n')
+            response = _read_response(connection)
+            if (_peer_exited(peer_pidfd) or _endpoint_identity(path) != endpoint):
+                return _blocked('protected broker peer exited or endpoint changed during reply')
+            if time.monotonic_ns() >= expires:
+                return _blocked('protected broker response expired before verification')
+            if (os.getuid(), os.geteuid()) != (verifier_uid, verifier_euid):
+                return _blocked('verifier kernel identity changed during protected broker IPC')
+            if _executable_descriptor_identity(executable_fd) != verifier_executable:
+                return _blocked('verifier executable changed during protected broker IPC')
+            result = verify_one_use_receipt(response, challenge, broker_verify_key, ledger_dir)
+            if result.get('status') != 'verified_uninstalled':
+                return result
+            if (_peer_exited(peer_pidfd) or _endpoint_identity(path) != endpoint):
+                return _blocked('protected broker disconnected before response consumption ended')
+            return {'status': 'verified_uninstalled'}
+    except (OSError, ValueError, TypeError, UnicodeError, struct.error,
+            AttributeError, OverflowError) as error:
+        return _blocked(f'protected broker IPC provenance unavailable: {type(error).__name__}')
+    finally:
+        if peer_pidfd is not None:
+            os.close(peer_pidfd)
+        if executable_fd is not None:
+            os.close(executable_fd)
