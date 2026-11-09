@@ -30,27 +30,65 @@ VERIFIER_UID = 999
 def _protected_path(path: Path, *, label: str, owners: tuple[int, ...]) -> str | None:
     if not path.is_absolute() or ".." in path.parts:
         return f"{label} must use an absolute unambiguous installation path"
+    required_flags = ("O_PATH", "O_DIRECTORY", "O_NOFOLLOW", "O_CLOEXEC")
+    if any(not hasattr(os, name) for name in required_flags):
+        return f"{label} descriptor-based installation verification is unavailable"
+    opened = []
     current = Path("/")
-    components = path.parts[1:]
-    for index, component in enumerate(("", *components)):
-        if index:
-            current = current / component
-        is_leaf = index == len(components)
-        try:
-            entry = os.lstat(current)
-        except OSError:
-            return f"{label} installation path not found: {current}"
-        if entry.st_uid not in owners or entry.st_mode & 0o022:
+    parent_fd = None
+    try:
+        components = path.parts[1:]
+        for index, component in enumerate(("", *components)):
+            if index:
+                current = current / component
+            is_leaf = index == len(components)
             segment = "leaf" if is_leaf else "ancestor"
-            return f"{label} {segment} is not protected: {current}"
-        if is_leaf:
-            valid_leaf = (stat.S_ISDIR(entry.st_mode) if label == "verifier trust root"
-                          else stat.S_ISREG(entry.st_mode))
-            if not valid_leaf:
-                return f"{label} leaf must be a protected regular file or trust directory: {current}"
-        elif not stat.S_ISDIR(entry.st_mode):
-            return f"{label} ancestor must be a real directory: {current}"
-    return None
+            try:
+                snapshot = os.lstat(current)
+            except OSError:
+                return f"{label} installation path not found: {current}"
+            if snapshot.st_uid not in owners or snapshot.st_mode & 0o022:
+                return f"{label} {segment} is not protected: {current}"
+            if is_leaf:
+                valid = (stat.S_ISDIR(snapshot.st_mode) if label == "verifier trust root"
+                         else stat.S_ISREG(snapshot.st_mode))
+                if not valid:
+                    return f"{label} leaf must be a protected regular file or trust directory: {current}"
+            elif not stat.S_ISDIR(snapshot.st_mode):
+                return f"{label} ancestor must be a real directory: {current}"
+            flags = os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC
+            if not is_leaf:
+                flags |= os.O_DIRECTORY
+            try:
+                if index:
+                    fd = os.open(component, flags, dir_fd=parent_fd)
+                else:
+                    fd = os.open("/", flags)
+            except OSError:
+                return f"{label} {segment} descriptor open failed: {current}"
+            opened.append((current, fd))
+            pinned = os.fstat(fd)
+            identity = lambda st: (st.st_dev, st.st_ino, st.st_mode, st.st_uid)
+            try:
+                same = identity(snapshot) == identity(pinned)
+            except AttributeError:
+                same = False
+            if not same:
+                return f"{label} {segment} changed during descriptor verification: {current}"
+            parent_fd = fd
+        for checked_path, fd in opened:
+            try:
+                observed = os.lstat(checked_path)
+                pinned = os.fstat(fd)
+            except OSError:
+                return f"{label} path disappeared during descriptor verification: {checked_path}"
+            if identity(observed) != identity(pinned):
+                return f"{label} path changed after descriptor pinning: {checked_path}"
+        return None
+    finally:
+        for _, fd in reversed(opened):
+            os.close(fd)
+
 
 
 def _installed_verifier_admission_check() -> dict[str, str]:
