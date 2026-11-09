@@ -1,0 +1,25 @@
+name: Independent RED descriptor race fixtures
+on:
+  push:
+    branches: [verification/orchestra-20261109-descriptor-race-red]
+permissions:
+  contents: read
+jobs:
+  exact-source-red:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: fc8b51e07a6930de536e050003d57f2392bab677
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.11'
+      - name: RED real-child swaps on exact source
+        env:
+          PYTHONPATH: codex/scripts
+        run: |
+          test "$(git rev-parse HEAD)" = fc8b51e07a6930de536e050003d57f2392bab677
+          python3 -m pip install 'cryptography==46.0.3'
+          python3 -m unittest discover -s codex/tests -p test_acceptance_descriptor_races.py -v
