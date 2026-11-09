@@ -14,8 +14,6 @@ import acceptance_cli
 
 
 class InstalledVerifierAdmissionTests(unittest.TestCase):
-    """Rootless rejection tests; fake root metadata is NOT an installed-root proof."""
-
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="orchestra-admission-")
         self.addCleanup(self.tmp.cleanup)
@@ -67,6 +65,14 @@ class InstalledVerifierAdmissionTests(unittest.TestCase):
                               p, bad_path=str(target), bad_mode=stat.S_IFREG | 0o777)):
             reason = acceptance_cli._protected_path(target, label="interpreter", owners=(0,))
         self.assertIn("interpreter", reason)
+
+    def test_swappable_cli_entrypoint_symlink_rejected_with_fake_stat(self):
+        target = Path("/opt/orchestra/bin/acceptance_cli.py")
+        with patch.object(acceptance_cli.os, "lstat",
+                          side_effect=lambda p: self._fake_root_stat(
+                              p, bad_path=str(target), bad_mode=stat.S_IFLNK | 0o777)):
+            reason = acceptance_cli._protected_path(target, label="entrypoint", owners=(0,))
+        self.assertIn("entrypoint", reason)
 
     def test_interpreter_symlink_rejected_with_fake_stat(self):
         target = Path("/opt/python/bin/python3.py")

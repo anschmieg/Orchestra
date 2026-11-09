@@ -28,12 +28,6 @@ VERIFIER_UID = 999
 
 
 def _protected_path(path: Path, *, label: str, owners: tuple[int, ...]) -> str | None:
-    """Best-effort negative screening, not atomic executable provenance.
-
-    Each lexical component is lstat-ed rather than resolved: a symlink in
-    any ancestor or the leaf is rejected. The broker must independently pin
-    immutable executable descriptors before exec; this check cannot do that.
-    """
     if not path.is_absolute() or ".." in path.parts:
         return f"{label} must use an absolute unambiguous installation path"
     current = Path("/")
@@ -50,19 +44,16 @@ def _protected_path(path: Path, *, label: str, owners: tuple[int, ...]) -> str |
             segment = "leaf" if is_leaf else "ancestor"
             return f"{label} {segment} is not protected: {current}"
         if is_leaf:
-            if not stat.S_ISREG(entry.st_mode) and not stat.S_ISDIR(entry.st_mode):
-                return f"{label} leaf must not be a symlink or special file: {current}"
+            valid_leaf = (stat.S_ISDIR(entry.st_mode) if label == "verifier trust root"
+                          else stat.S_ISREG(entry.st_mode))
+            if not valid_leaf:
+                return f"{label} leaf must be a protected regular file or trust directory: {current}"
         elif not stat.S_ISDIR(entry.st_mode):
             return f"{label} ancestor must be a real directory: {current}"
     return None
 
 
 def _installed_verifier_admission_check() -> dict[str, str]:
-    """Reject unsafe installs; broker proof is unavailable so never grant GO.
-
-    Python startup precedes this check. It cannot authenticate its own
-    entrypoint, interpreter, imports, dynamic loader or pre-init execution.
-    """
     if not (sys.flags.isolated and sys.flags.no_site):
         return {"status": "blocked", "reason": "verifier startup requires -I -S before imports"}
     if sys.prefix != sys.base_prefix:
@@ -85,10 +76,6 @@ def _installed_verifier_admission_check() -> dict[str, str]:
         return {"status": "blocked", "reason": "broker verifier identity mismatched"}
     if broker.get("evaluator_uid") in (0, VERIFIER_UID):
         return {"status": "blocked", "reason": "broker evaluator identity is not independent"}
-    # A nonce-bound transport probe is not an attestation of installed broker
-    # executable, evaluator UID, cgroup generation or anti-replay binding.
-    # No accepted state exists until the operator deploys and validates that
-    # separate privileged protocol; never trust a broker self-reported "ready".
     return {"status": "blocked", "reason": "broker attestation missing: installed execution identity unverified"}
 
 
