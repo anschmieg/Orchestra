@@ -51,7 +51,7 @@ jobs:
           set +e
           python3 codex/scripts/validate_suite.py --full --comment-base 85c65b4f05b58a6936d52cfcbad3446730125834
           rc=$?
-          printf 'COMMAND=python3 codex/scripts/validate_suite.py --full --comment-base HEAD^ EXIT=%s\n' "$rc"
+          printf 'COMMAND=python3 codex/scripts/validate_suite.py --full --comment-base 85c65b4f05b58a6936d52cfcbad3446730125834 EXIT=%s\n' "$rc"
           exit "$rc"
       - name: Adversarial acceptance suite (explicit count)
         if: always()
