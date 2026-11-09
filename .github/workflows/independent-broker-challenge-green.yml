@@ -9,13 +9,13 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
-      SOURCE_SHA: d92a6d360b35147eb480ab9b76e4ac9ec121fe27
+      SOURCE_SHA: 344168078b0896576bce73cc95f2cdc913145878
       PYTHONDONTWRITEBYTECODE: "1"
       PYTHONPATH: codex/scripts
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: d92a6d360b35147eb480ab9b76e4ac9ec121fe27
+          ref: 344168078b0896576bce73cc95f2cdc913145878
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
@@ -34,4 +34,4 @@ jobs:
         run: python3 -m unittest discover -s codex/tests -p 'test_acceptance_*.py' -v
       - name: Official full conformance
         if: always()
-        run: python3 codex/scripts/validate_suite.py --full --comment-base ci
+        run: python3 codex/scripts/validate_suite.py --full --comment-base d92a6d360b35147eb480ab9b76e4ac9ec121fe27
