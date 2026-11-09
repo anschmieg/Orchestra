@@ -10,14 +10,14 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "codex" / "scripts"))
 sys.path.insert(0, str(ROOT / "codex" / "tests"))
-from test_acceptance_rotation import RotationAcrossRefusedIPC
+import test_acceptance_rotation as rotation
 
 
 class IndependentPostReceiptAdversarialReview(unittest.TestCase):
     """Additional unprivileged negatives. Never claims installed privileged GO."""
 
     def negative(self, tamper):
-        fixture = RotationAcrossRefusedIPC(
+        fixture = rotation.RotationAcrossRefusedIPC(
             methodName="test_generation_manifest_replaced_while_ipc_is_refused")
         fixture.setUp()
         try:

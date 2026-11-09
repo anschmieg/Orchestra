@@ -9,13 +9,13 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
-      SOURCE_SHA: 4a2a2e1e2e986dec8f466fefbdac7857d11bbc53
+      SOURCE_SHA: e5408addb1645f5f068dce163f47cfd8c90747ef
       PYTHONDONTWRITEBYTECODE: "1"
       PYTHONPATH: codex/scripts:codex/tests
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 4a2a2e1e2e986dec8f466fefbdac7857d11bbc53
+          ref: e5408addb1645f5f068dce163f47cfd8c90747ef
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -31,9 +31,9 @@ jobs:
       - name: Assert exact original source and changed blob identity
         run: |
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
-          test "$(git rev-parse HEAD:codex/scripts/acceptance_cli.py)" = "5f12e34838fe0388472885997765e1aa9d8490ee"
+          test "$(git rev-parse HEAD:codex/scripts/acceptance_cli.py)" = "b88a6f74076132fdb8873f3ee6b06c9284de19d9"
           test "$(git rev-parse HEAD:codex/scripts/acceptance_broker_ipc.py)" = "e0a1e95f30977ac95bc7c8f902796d365d2e9bca"
-          test "$(git rev-parse HEAD:codex/tests/test_acceptance_rotation.py)" = "8f6388aa55fb1696ab76d4b6e813304311f20c32"
+          test "$(git rev-parse HEAD:codex/tests/test_acceptance_rotation.py)" = "a7dffe1ee47728b2f4a9bfad28e518bd7f939b9c"
           echo "EXACT_ORIGINAL_SOURCE=$SOURCE_SHA"
       - name: Targeted six in-flight race adversarial regression tests
         run: python3 -m unittest discover -s codex/tests -p test_acceptance_rotation.py -v
