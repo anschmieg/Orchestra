@@ -21,7 +21,6 @@ import acceptance_cli
                      "requires Linux pidfd and /proc/self/exe")
 class BrokerChallengeBindingTests(unittest.TestCase):
     def _exchange(self, change=None, *, peer_uid=0, exited=None):
-        """Fake wire peer only. Never a privileged acceptance receipt."""
         class Peer:
             def __enter__(self): return self
             def __exit__(self, *args): pass
@@ -98,8 +97,6 @@ class BrokerChallengeBindingTests(unittest.TestCase):
             self.assertEqual(self._exchange()["status"], "blocked")
 
     def test_broker_parent_death_does_not_authenticate_surviving_child(self):
-        # A real unrelated child survives the simulated broker loss; it cannot
-        # inherit authority from a PIDFD-pinned, exited parent.
         child = subprocess.Popen([sys.executable, "-c", "import time;time.sleep(30)"],
                                  stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                  stderr=subprocess.DEVNULL)
@@ -113,9 +110,6 @@ class BrokerChallengeBindingTests(unittest.TestCase):
 
 
     def test_exec_after_parent_death_with_inherited_descriptor_cannot_authenticate(self):
-        # A real grandchild inherits an output FD, waits for the broker parent
-        # to exit, then execs a fresh Python process. Its live descriptor
-        # cannot resurrect the kernel PIDFD identity of its dead parent.
         import select
         output_read, output_write = os.pipe()
         gate_read, gate_write = os.pipe()
