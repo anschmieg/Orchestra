@@ -12,13 +12,13 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
-      SOURCE_SHA: adee51b70739646d7384062bf7af2536cf3908de
+      SOURCE_SHA: de27299343918f732d8211057768fea18b03be30
       PYTHONDONTWRITEBYTECODE: "1"
       PYTHONPATH: codex/scripts
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: adee51b70739646d7384062bf7af2536cf3908de
+          ref: de27299343918f732d8211057768fea18b03be30
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
