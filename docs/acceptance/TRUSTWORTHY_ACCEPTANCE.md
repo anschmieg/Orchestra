@@ -40,6 +40,19 @@ It exposes a small CLI/API surface (`start`, `status`, `approve`, `enroll`,
 
 **Current status: NO-GO.** OS-principal isolation and a root-controlled broker have not been demonstrated or installed. Commit-bound signatures do not make execution safe. Untrusted checks cannot execute, and no accepted result can be issued by the current gate. A future broker must prove distinct UIDs, secret isolation, root-controlled provisioning and cgroup/process-tree cleanup after broker SIGKILL and double-fork. Installation requires explicit operator authorization.
 
+## Verifier executable provenance
+
+An implementer-controlled checkout is not a verifier installation: it can replace
+the Python entrypoint or imports, and a caller-supplied `PYTHONPATH` can run
+`sitecustomize` before signatures or protected-keyring checks. The gate
+subprocess therefore uses isolated Python (`-I`), a minimal allowlisted
+environment and the verifier home as cwd, not the candidate checkout.
+**This does not authenticate the parent CLI**: production approval requires a
+separately installed, immutable verifier executable and trusted Python runtime,
+invoked by a privileged broker with sanitized process startup and distinct OS
+principal. Running `acceptance_cli.py` from a candidate checkout, even with
+these subprocess safeguards, is not authoritative and cannot grant GO.
+
 ## Adversarial pilot
 
 `codex/tests/test_acceptance_adversarial.py` checks signature, key and commit rejection. `codex/tests/test_acceptance_fail_closed_milestone.py` additionally proves that unprivileged execution never launches a malicious check, so a dummy private key cannot be accessed and a forged PASS marker cannot be written. These are non-privileged regression tests, **not** installed-broker acceptance.
