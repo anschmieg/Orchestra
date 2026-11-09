@@ -90,7 +90,7 @@ class IndependentProtectedAdmissionReview(unittest.TestCase):
                 signature = key.sign(json.dumps(
                     body, sort_keys=True, separators=(",", ":")).encode()).hex()
                 self.reply = (json.dumps(
-                    {**body, "signature": signature}, sort_keys=True) + "\\n").encode()
+                    {**body, "signature": signature}, sort_keys=True) + "\n").encode()
                 child.kill()
                 child.wait(timeout=5)
             def recv(self, _size):
@@ -102,10 +102,10 @@ class IndependentProtectedAdmissionReview(unittest.TestCase):
                 ledger = Path(directory) / "ledger"
                 ledger.mkdir(mode=0o700)
                 (ledger / "used-nonces").touch(mode=0o600)
-                with patch.object(ipc, "_trusted_endpoint", return_value=None), \\
-                     patch.object(ipc, "_endpoint_identity", return_value=(3, 4)), \\
-                     patch.object(ipc.socket, "socket", return_value=LateReply()), \\
-                     patch.object(ipc.secrets, "token_hex", return_value="e" * 64):
+                with (patch.object(ipc, "_trusted_endpoint", return_value=None),
+                      patch.object(ipc, "_endpoint_identity", return_value=(3, 4)),
+                      patch.object(ipc.socket, "socket", return_value=LateReply()),
+                      patch.object(ipc.secrets, "token_hex", return_value="e" * 64)):
                     result = ipc._protected_receipt_at(
                         ipc.BROKER_SOCKET, task_id="task-A",
                         context_id="context-A", generation="generation-A",
