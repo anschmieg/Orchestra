@@ -1,0 +1,48 @@
+name: Independent exact-original operator-pinned installed acceptance GREEN
+on:
+  push:
+    branches: [verification/orchestra-20261109-operator-pin-green]
+permissions:
+  contents: read
+jobs:
+  independent-operator-pin-green:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      SOURCE_SHA: 5611d6155079e2d0a1a0ec18566553b6b4bad84c
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONPATH: codex/scripts
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 5611d6155079e2d0a1a0ec18566553b6b4bad84c
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: verification/orchestra-20261109-operator-pin-green
+          persist-credentials: false
+          path: review_only_checkout
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - name: Install pinned cryptographic dependency
+        run: python3 -m pip install --disable-pip-version-check 'cryptography==46.0.3'
+      - name: Assert exact original source and changed blob identity
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          test "$(git rev-parse HEAD:codex/scripts/acceptance_cli.py)" = "2b4bc4d1db86710f074e62620fa5486ef6b94410"
+          test "$(git rev-parse HEAD:codex/scripts/acceptance_broker_ipc.py)" = "61403edf4a8214b9a4f65d6edbfc6778ed8f7132"
+          test "$(git rev-parse HEAD:codex/tests/test_acceptance_operator_pinning.py)" = "6b58d1a4f882213cf35ddf2bfc7b6bf5df97ed2b"
+          echo "EXACT_ORIGINAL_SOURCE=$SOURCE_SHA"
+      - name: New operator installation adversarial targeted GREEN
+        run: python3 -m unittest discover -s codex/tests -p 'test_acceptance_operator_pinning.py' -v
+      - name: Independent distinct second security review
+        if: always()
+        run: python3 -m unittest discover -s review_only_checkout/review-only -p test_operator_second_review.py -v
+      - name: Broad all acceptance security regressions
+        if: always()
+        run: python3 -m unittest discover -s codex/tests -p 'test_acceptance_*.py' -v
+      - name: Official full conformance
+        if: always()
+        run: python3 codex/scripts/validate_suite.py --full --comment-base d92a6d360b35147eb480ab9b76e4ac9ec121fe27
