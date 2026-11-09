@@ -1,0 +1,30 @@
+name: Independent broker challenge boundary acceptance
+on:
+  push:
+    branches: [verification/orchestra-20261109-broker-attestation-red]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  challenge-and-regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONPATH: codex/scripts
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.11'
+      - name: Pin exact checkout to workflow SHA
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Challenge-specific adversarial tests
+        run: python3 -m unittest discover -s codex/tests -p 'test_acceptance_broker_attestation.py' -v
+      - name: Broad acceptance regression tests
+        run: python3 -m unittest discover -s codex/tests -p 'test_acceptance_*.py' -v
+      - name: Official full conformance
+        run: python3 codex/scripts/validate_suite.py --full --comment-base ci
