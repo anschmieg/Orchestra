@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+import subprocess
 import stat
 import struct
 import sys
@@ -105,6 +106,25 @@ class BrokerIpcAdversarialTests(unittest.TestCase):
             with self.subTest(value=value):
                 raw = self._reply().replace(b'"protocol": 1', b'"protocol": ' + value, 1)
                 self.assertEqual(self._simulate(raw)['status'], 'blocked')
+
+    @unittest.skipUnless(sys.platform.startswith('linux') and hasattr(os, 'pidfd_open'),
+                         'requires Linux pidfd and a real unrelated process')
+    def test_unrelated_live_process_pidfd_cannot_authenticate_claimed_broker(self):
+        # Simulated root credentials must not accept a pidfd for a different live process.
+        unrelated = subprocess.Popen(
+            [sys.executable, '-c', 'import time;time.sleep(60)'],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        real_pidfd_open = os.pidfd_open
+        try:
+            with patch('acceptance_broker_ipc.os.pidfd_open',
+                       side_effect=lambda _pid, _flags: real_pidfd_open(unrelated.pid, 0)):
+                result = self._simulate(self._reply())
+            self.assertEqual(result['status'], 'blocked', result)
+            self.assertIsNone(unrelated.poll())
+        finally:
+            if unrelated.poll() is None:
+                unrelated.kill()
+            unrelated.wait(timeout=5)
 
     def _reply(self, *, nonce='test-nonce', status='ready', capabilities=None):
         if capabilities is None:

@@ -69,6 +69,14 @@ def _peer_exited(pidfd: int) -> bool:
     return bool(watcher.poll(0))
 
 
+def _pidfd_matches_credential_pid(pidfd: int, claimed_pid: int) -> bool:
+    # fdinfo binds the owner lookup to the pinned pidfd, not to a reusable PID.
+    with open(f'/proc/self/fdinfo/{pidfd}', encoding='ascii') as details:
+        owners = [line.partition(':')[2].strip()
+                  for line in details if line.startswith('Pid:')]
+    return owners == [str(claimed_pid)]
+
+
 def _probe_at(path: Path) -> dict[str, str]:
     violation = _trusted_endpoint(path)
     if violation:
@@ -87,6 +95,8 @@ def _probe_at(path: Path) -> dict[str, str]:
                 socket.SOL_SOCKET, SO_PEERPIDFD, struct.calcsize('i')))[0]
             if peer_pidfd < 0:
                 return _blocked('kernel broker peer identity pinning failed')
+            if not _pidfd_matches_credential_pid(peer_pidfd, pid):
+                return _blocked('broker peer PIDFD owner does not match socket credentials')
             if _peer_exited(peer_pidfd):
                 return _blocked('broker peer exited before handshake')
             connection.sendall(json.dumps(request, sort_keys=True).encode('utf-8') + b'\n')
