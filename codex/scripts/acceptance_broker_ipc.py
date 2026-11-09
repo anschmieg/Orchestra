@@ -12,6 +12,7 @@ from pathlib import Path
 BROKER_SOCKET = Path('/run/orchestra-acceptance/broker.sock')
 PROTOCOL_VERSION = 1
 MAX_RESPONSE = 16384
+SO_PEERPIDFD = getattr(socket, 'SO_PEERPIDFD', 77)
 REQUIRED_CAPABILITIES = frozenset({
     'separate-evaluator-uid', 'cgroup-v2', 'recursive-kill', 'broker-sigkill-recovery',
 })
@@ -82,9 +83,10 @@ def _probe_at(path: Path) -> dict[str, str]:
             pid, uid, gid = struct.unpack('3i', connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
             if uid != 0 or pid <= 0:
                 return _blocked('broker peer is not a root-owned process')
-            if not hasattr(os, 'pidfd_open'):
-                return _blocked('broker process identity pinning unavailable')
-            peer_pidfd = os.pidfd_open(pid, 0)
+            peer_pidfd = struct.unpack('i', connection.getsockopt(
+                socket.SOL_SOCKET, SO_PEERPIDFD, struct.calcsize('i')))[0]
+            if peer_pidfd < 0:
+                return _blocked('kernel broker peer identity pinning failed')
             if _peer_exited(peer_pidfd):
                 return _blocked('broker peer exited before handshake')
             connection.sendall(json.dumps(request, sort_keys=True).encode('utf-8') + b'\n')
