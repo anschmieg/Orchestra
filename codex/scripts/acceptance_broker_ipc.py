@@ -225,6 +225,9 @@ def _endpoint_identity(path: Path) -> tuple[int, int, int, int]:
 def _protected_receipt_at(
     path: Path, *, task_id: str, context_id: str, generation: str,
     broker_verify_key: Any, ledger_dir: Path,
+    expected_broker_executable: list[int] | None = None,
+    expected_endpoint_identity: list[int] | None = None,
+    expected_evaluator_uid: int | None = None,
 ) -> dict[str, str]:
     for label, value in (('task', task_id), ('context', context_id),
                          ('generation', generation)):
@@ -236,12 +239,34 @@ def _protected_receipt_at(
     if violation:
         return _blocked(violation)
 
+    if expected_broker_executable is not None and (
+            type(expected_broker_executable) is not list
+            or len(expected_broker_executable) != 4
+            or any(type(item) is not int or item < 0 for item in expected_broker_executable)
+            or expected_broker_executable[3] != 0
+            or not stat.S_ISREG(expected_broker_executable[2])):
+        return _blocked('operator-pinned broker executable identity is invalid')
+    if expected_endpoint_identity is not None and (
+            type(expected_endpoint_identity) is not list
+            or len(expected_endpoint_identity) != 4
+            or any(type(item) is not int or item < 0 for item in expected_endpoint_identity)):
+        return _blocked('operator-pinned broker socket identity is invalid')
+
+    if expected_evaluator_uid is not None and (
+            type(expected_evaluator_uid) is not int or expected_evaluator_uid <= 0
+            or expected_evaluator_uid == os.getuid()):
+        return _blocked('operator-pinned evaluator kernel UID invalid')
+
     peer_pidfd = None
     executable_fd = None
+    broker_executable_fd = None
     try:
         if not hasattr(os, 'O_PATH'):
             return _blocked('verifier executable descriptor pinning unavailable')
         endpoint = _endpoint_identity(path)
+        if (expected_endpoint_identity is not None
+                and tuple(expected_endpoint_identity) != tuple(endpoint)):
+            return _blocked('operator-pinned broker socket inode or owner changed')
         executable_fd = os.open('/proc/self/exe', os.O_PATH | os.O_CLOEXEC)
         verifier_executable = _executable_descriptor_identity(executable_fd)
         verifier_uid, verifier_euid = os.getuid(), os.geteuid()
@@ -273,17 +298,36 @@ def _protected_receipt_at(
                 return _blocked('protected broker PIDFD does not match connected peer')
             if _peer_exited(peer_pidfd):
                 return _blocked('protected broker died before admission challenge')
+            if expected_broker_executable is not None:
+                broker_executable_fd = os.open(
+                    f'/proc/{peer_pid}/exe', os.O_PATH | os.O_CLOEXEC)
+                if (_executable_descriptor_identity(broker_executable_fd)
+                        != expected_broker_executable):
+                    return _blocked('connected broker executable differs from operator-pinned installation')
             connection.sendall(json.dumps(
                 request, sort_keys=True, separators=(',', ':')).encode('utf-8') + b'\n')
             response = _read_response(connection)
             if (_peer_exited(peer_pidfd) or _endpoint_identity(path) != endpoint):
                 return _blocked('protected broker peer exited or endpoint changed during reply')
+            if broker_executable_fd is not None:
+                refreshed = os.open(
+                    f'/proc/{peer_pid}/exe', os.O_PATH | os.O_CLOEXEC)
+                try:
+                    if (_executable_descriptor_identity(refreshed)
+                            != _executable_descriptor_identity(broker_executable_fd)):
+                        return _blocked('operator-pinned broker executable rotated during IPC')
+                finally:
+                    os.close(refreshed)
             if time.monotonic_ns() >= expires:
                 return _blocked('protected broker response expired before verification')
             if (os.getuid(), os.geteuid()) != (verifier_uid, verifier_euid):
                 return _blocked('verifier kernel identity changed during protected broker IPC')
             if _executable_descriptor_identity(executable_fd) != verifier_executable:
                 return _blocked('verifier executable changed during protected broker IPC')
+            if (expected_evaluator_uid is not None
+                    and (type(response.get('evaluator_uid')) is not int
+                         or response['evaluator_uid'] != expected_evaluator_uid)):
+                return _blocked('broker evaluator UID differs from operator-pinned installation')
             result = verify_one_use_receipt(response, challenge, broker_verify_key, ledger_dir)
             if result.get('status') != 'verified_uninstalled':
                 return result
@@ -298,3 +342,5 @@ def _protected_receipt_at(
             os.close(peer_pidfd)
         if executable_fd is not None:
             os.close(executable_fd)
+        if broker_executable_fd is not None:
+            os.close(broker_executable_fd)

@@ -16,7 +16,10 @@ from acceptance_keyring import (
     save_keyring,
 )
 from acceptance_policy import active_grants, boundary_check, require
-from acceptance_broker_ipc import probe_broker
+from acceptance_broker_ipc import (
+    BROKER_SOCKET, _endpoint_identity, _protected_receipt_at, probe_broker,
+)
+from acceptance_keyring import load_verify_key
 from acceptance_reconcile import list_launches, lookup, record_launch, reconcile
 
 HERE = Path(__file__).resolve().parent
@@ -24,6 +27,8 @@ RUNTIME = HERE.parent
 
 VERIFIER_HOME = Path("/etc/orchestra-acceptance")
 VERIFIER_UID = 999
+BROKER_INSTALLATION = Path("/etc/orchestra-acceptance/broker-installation.json")
+BROKER_LEDGER = Path("/etc/orchestra-acceptance/admissions")
 
 
 
@@ -91,6 +96,91 @@ def _protected_path(path: Path, *, label: str, owners: tuple[int, ...]) -> str |
 
 
 
+def _load_operator_installation() -> dict[str, Any]:
+    """Read only an operator-installed root-controlled broker identity, never a CLI key."""
+    violation = _protected_path(
+        BROKER_INSTALLATION, label="broker installation manifest", owners=(0,))
+    if violation:
+        return {"status": "blocked", "reason": violation}
+    descriptor = None
+    try:
+        descriptor = os.open(
+            BROKER_INSTALLATION, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        pinned = os.fstat(descriptor)
+        if (not stat.S_ISREG(pinned.st_mode) or pinned.st_uid != 0
+                or pinned.st_mode & 0o022 or pinned.st_nlink != 1
+                or pinned.st_size < 2 or pinned.st_size > 8192):
+            return {"status": "blocked",
+                    "reason": "broker installation manifest is not a protected single-link root file"}
+        raw = os.read(descriptor, 8193)
+        observed = os.lstat(BROKER_INSTALLATION)
+        identity = lambda item: (item.st_dev, item.st_ino, item.st_uid, item.st_mode)
+        if (len(raw) != pinned.st_size or identity(observed) != identity(pinned)):
+            return {"status": "blocked",
+                    "reason": "broker installation manifest changed during descriptor read"}
+        def strict_pairs(pairs):
+            value = {}
+            for key, item in pairs:
+                if key in value:
+                    raise ValueError("ambiguous duplicate installation field")
+                value[key] = item
+            return value
+        manifest = json.loads(raw.decode("utf-8"), object_pairs_hook=strict_pairs)
+    except (OSError, ValueError, UnicodeError, TypeError) as error:
+        return {"status": "blocked",
+                "reason": f"broker installation provenance invalid: {type(error).__name__}"}
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+
+    fields = {
+        "schema", "installation_id", "generation", "task_id", "context_id",
+        "broker_socket", "broker_uid", "broker_executable", "socket_identity",
+        "verifier_uid", "evaluator_uid", "broker_public_key",
+    }
+    if type(manifest) is not dict or set(manifest) != fields:
+        return {"status": "blocked", "reason": "broker installation schema mismatch"}
+    for field in ("installation_id", "generation", "task_id", "context_id"):
+        value = manifest[field]
+        if (type(value) is not str or not (0 < len(value) <= 256)
+                or value != value.strip()
+                or any(ord(c) < 32 or ord(c) == 127 for c in value)):
+            return {"status": "blocked", "reason": f"broker installation {field} invalid"}
+    if (type(manifest["schema"]) is not int or manifest["schema"] != 1
+            or type(manifest["broker_socket"]) is not str
+            or manifest["broker_socket"] != str(BROKER_SOCKET)
+            or type(manifest["broker_uid"]) is not int or manifest["broker_uid"] != 0
+            or type(manifest["verifier_uid"]) is not int
+            or manifest["verifier_uid"] != VERIFIER_UID
+            or type(manifest["evaluator_uid"]) is not int
+            or manifest["evaluator_uid"] in (0, VERIFIER_UID)
+            or manifest["evaluator_uid"] < 1):
+        return {"status": "blocked", "reason": "broker installation kernel identity mismatch"}
+    executable = manifest["broker_executable"]
+    endpoint = manifest["socket_identity"]
+    if (type(executable) is not list or len(executable) != 4
+            or any(type(value) is not int or value < 0 for value in executable)
+            or not stat.S_ISREG(executable[2]) or executable[3] != 0
+            or executable[2] & 0o022
+            or type(endpoint) is not list or len(endpoint) != 4
+            or any(type(value) is not int or value < 0 for value in endpoint)
+            or endpoint[2] != 0 or not stat.S_ISSOCK(endpoint[3])
+            or endpoint[3] & 0o002):
+        return {"status": "blocked", "reason": "broker installation executable or socket identity invalid"}
+    key = manifest["broker_public_key"]
+    if (type(key) is not str or not key.startswith("ssh-ed25519 ")
+            or len(key) > 1024 or "\n" in key or "\r" in key):
+        return {"status": "blocked", "reason": "broker installation public key is not pinned Ed25519"}
+    try:
+        verify_key = load_verify_key(key)
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+        if not isinstance(verify_key, Ed25519PublicKey):
+            raise ValueError("broker key is not Ed25519")
+    except (OSError, ValueError, TypeError):
+        return {"status": "blocked", "reason": "broker installation public key cannot be verified"}
+    return {"status": "ok", "installation": manifest}
+
+
 def _installed_verifier_admission_check() -> dict[str, str]:
     if not (sys.flags.isolated and sys.flags.no_site):
         return {"status": "blocked", "reason": "verifier startup requires -I -S before imports"}
@@ -107,15 +197,47 @@ def _installed_verifier_admission_check() -> dict[str, str]:
         violation = _protected_path(path, label=label, owners=(0,))
         if violation:
             return {"status": "blocked", "reason": violation}
-    broker = probe_broker()
-    if not isinstance(broker, dict):
-        return {"status": "blocked", "reason": "broker attestation missing: malformed response"}
-    if broker.get("verifier_uid") not in (None, VERIFIER_UID):
-        return {"status": "blocked", "reason": "broker verifier identity mismatched"}
-    if broker.get("evaluator_uid") in (0, VERIFIER_UID):
-        return {"status": "blocked", "reason": "broker evaluator identity is not independent"}
-    return {"status": "blocked", "reason": "broker attestation missing: installed execution identity unverified"}
-
+    # Root-pinned installation metadata is independent of all verifier CLI arguments,
+    # environment variables and user-managed keyrings.
+    installed = _load_operator_installation()
+    if installed["status"] != "ok":
+        return {"status": "blocked", "reason": "broker attestation missing: " + installed["reason"]}
+    manifest = installed["installation"]
+    for label, path, owners in (
+        ("verifier trust root", BROKER_SOCKET.parent, (0,)),
+        ("verifier trust root", BROKER_LEDGER, (0, VERIFIER_UID)),
+    ):
+        violation = _protected_path(path, label=label, owners=owners)
+        if violation:
+            return {"status": "blocked", "reason": violation}
+    try:
+        endpoint = _endpoint_identity(BROKER_SOCKET)
+    except OSError:
+        return {"status": "blocked", "reason": "pinned broker socket is not installed"}
+    if tuple(endpoint) != tuple(manifest["socket_identity"]):
+        return {"status": "blocked", "reason": "pinned broker socket installation identity changed"}
+    try:
+        broker_key = load_verify_key(manifest["broker_public_key"])
+    except (OSError, ValueError, TypeError):
+        return {"status": "blocked", "reason": "operator broker verification key unavailable"}
+    receipt = _protected_receipt_at(
+        BROKER_SOCKET,
+        task_id=manifest["task_id"],
+        context_id=manifest["context_id"],
+        generation=manifest["generation"],
+        broker_verify_key=broker_key,
+        ledger_dir=BROKER_LEDGER,
+        expected_broker_executable=manifest["broker_executable"],
+        expected_endpoint_identity=manifest["socket_identity"],
+        expected_evaluator_uid=manifest["evaluator_uid"],
+    )
+    if receipt.get("status") != "verified_uninstalled":
+        return {"status": "blocked", "reason":
+                "protected installed broker receipt rejected: " + receipt.get("reason", "unverified")}
+    # A signed broker receipt, including a test double, does NOT prove installed
+    # SIGKILL/double-fork/cgroup containment; require operator-only physical positive.
+    return {"status": "blocked",
+            "reason": "operator-installed positive crash containment not yet attested"}
 
 def _verifier_principal_check() -> dict[str, Any]:
     if os.getuid() != VERIFIER_UID or os.geteuid() != VERIFIER_UID:
