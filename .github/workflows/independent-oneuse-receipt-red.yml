@@ -1,0 +1,20 @@
+name: Independent one-use broker receipt RED
+on:
+  push:
+    branches: [verification/orchestra-20261109-oneuse-receipt-red]
+permissions:
+  contents: read
+jobs:
+  receipt-red:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.11'
+      - run: python3 -m pip install --disable-pip-version-check 'cryptography==46.0.3'
+      - name: Baseline negative receipt security tests (expected RED)
+        run: python3 -m unittest discover -s codex/tests -p 'test_acceptance_signed_receipt.py' -v
