@@ -1,0 +1,33 @@
+name: Independent original Orchestra operator-pinned installed acceptance RED
+on:
+  push:
+    branches: [verification/orchestra-20261109-operator-pin-red]
+permissions:
+  contents: read
+jobs:
+  independent-operator-pin-red:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      SOURCE_SHA: 8abf7778d5a8c27d418c4c7f194229cf0c767c9e
+      PYTHONPATH: codex/scripts
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 8abf7778d5a8c27d418c4c7f194229cf0c767c9e
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: verification/orchestra-20261109-operator-pin-red
+          persist-credentials: false
+          path: review_only_checkout
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.11'
+      - run: python3 -m pip install --disable-pip-version-check 'cryptography==46.0.3'
+      - name: Assert exact original source commit
+        run: test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - name: RED new distinct operator key and installation adversarial tests
+        run: python3 -m unittest discover -s review_only_checkout/review-only -p test_acceptance_operator_pinning.py -v
